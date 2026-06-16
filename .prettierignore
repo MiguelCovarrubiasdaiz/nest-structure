@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.react-email/
+uploads/
+pnpm-lock.yaml
+drizzle/
