@@ -120,12 +120,35 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   MAIL_SMTP_PASS?: string;
+
+  @IsString()
+  JWT_ACCESS_SECRET!: string;
+
+  @IsString()
+  JWT_ACCESS_EXPIRES_IN: string = '15m';
+
+  @IsString()
+  JWT_REFRESH_SECRET!: string;
+
+  @IsString()
+  JWT_REFRESH_EXPIRES_IN: string = '7d';
+
+  @IsInt()
+  @Min(4)
+  @Max(15)
+  BCRYPT_ROUNDS: number = 10;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
-  const validated = plainToInstance(EnvironmentVariables, config, {
-    enableImplicitConversion: true,
-  });
+  // NOTE: do NOT enable implicit conversion. class-transformer's implicit
+  // boolean coercion does `Boolean("false") === true`, which silently breaks
+  // any boolean env flag. We rely on explicit @Transform decorators for
+  // type coercion (toBool for booleans, Number for ints).
+  const coerced: Record<string, unknown> = { ...config };
+  for (const key of ['PORT', 'MAIL_SMTP_PORT', 'BCRYPT_ROUNDS']) {
+    if (typeof coerced[key] === 'string') coerced[key] = Number(coerced[key]);
+  }
+  const validated = plainToInstance(EnvironmentVariables, coerced);
   const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length > 0) {
     const messages = errors

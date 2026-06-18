@@ -16,9 +16,10 @@ export type Database = PostgresJsDatabase<typeof schema>;
       inject: [ConfigService],
       useFactory: (config: ConfigService): Database => {
         const url = config.getOrThrow<string>('DATABASE_URL');
-        const ssl = config.get<boolean>('DATABASE_SSL', false);
+        const sslRaw = config.get<string | boolean>('DATABASE_SSL', false);
+        const ssl = sslRaw === true || sslRaw === 'true';
         const client = postgres(url, { ssl: ssl ? 'require' : false, max: 10 });
-        Logger.log('Connected to PostgreSQL via Drizzle', 'DatabaseModule');
+        Logger.log(`Connected to PostgreSQL via Drizzle (ssl=${ssl})`, 'DatabaseModule');
         return drizzle(client, { schema });
       },
     },

@@ -18,5 +18,6 @@ import { DrizzleUserRepository } from './infrastructure/persistence/drizzle-user
     DeleteUserUseCase,
     { provide: USER_REPOSITORY, useClass: DrizzleUserRepository },
   ],
+  exports: [GetUserUseCase, USER_REPOSITORY],
 })
 export class UsersModule {}
