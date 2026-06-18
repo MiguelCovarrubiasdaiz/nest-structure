@@ -10,7 +10,8 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '@modules/auth/infrastructure/http/public.decorator';
 import { CreateUserDto } from '../../application/dtos/create-user.dto';
 import { UpdateUserDto } from '../../application/dtos/update-user.dto';
 import { UserResponse } from '../../application/dtos/user.response';
@@ -21,6 +22,7 @@ import { ListUsersUseCase } from '../../application/use-cases/list-users.use-cas
 import { UpdateUserUseCase } from '../../application/use-cases/update-user.use-case';
 
 @ApiTags('users')
+@ApiBearerAuth()
 @Controller('users')
 export class UserController {
   constructor(
@@ -32,7 +34,8 @@ export class UserController {
   ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a user' })
+  @Public()
+  @ApiOperation({ summary: 'Register a new user' })
   async create(@Body() dto: CreateUserDto): Promise<UserResponse> {
     const user = await this.createUser.execute(dto);
     return UserResponse.fromDomain(user);
