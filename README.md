@@ -262,13 +262,40 @@ pnpm db:push
 
 ## Setup
 
+Requisitos: Node 20 (`.nvmrc`), pnpm 9, Docker (para PostgreSQL local).
+
 ```bash
 nvm use                # lee .nvmrc → Node 20
-cp .env.example .env
+cp .env.example .env   # ya viene apuntando a postgres://postgres:postgres@localhost:5432/nest_db
 pnpm install           # husky se instala solo via `prepare`
-docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
-pnpm db:push
+docker compose up -d   # levanta PostgreSQL 16 con la base nest_db creada
+pnpm db:push           # sincroniza el schema Drizzle con la DB
 pnpm start:dev
+```
+
+### PostgreSQL local con Docker
+
+El `docker-compose.yml` levanta Postgres 16 con:
+
+- usuario / password: `postgres` / `postgres`
+- base de datos: `nest_db` (creada automáticamente en el primer arranque)
+- puerto: `5432` expuesto en el host
+- volumen `postgres_data` para persistir los datos entre reinicios
+
+```bash
+docker compose up -d         # arranca en background
+docker compose logs -f pg    # ver logs (Ctrl+C para salir)
+docker compose down          # parar (conserva los datos en el volumen)
+docker compose down -v       # parar y BORRAR la base de datos
+```
+
+Estos defaults matchean el `DATABASE_URL` del `.env.example`. Si quieres apuntar a otra instancia (RDS, Neon, Supabase, etc.), edita `DATABASE_URL` en tu `.env` y opcionalmente `DATABASE_SSL=true`.
+
+### Conectarte a la DB
+
+```bash
+docker compose exec postgres psql -U postgres -d nest_db   # CLI dentro del contenedor
+pnpm db:studio                                             # Drizzle Studio en el navegador
 ```
 
 - API: `http://localhost:3000/api`
