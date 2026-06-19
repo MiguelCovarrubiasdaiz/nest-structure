@@ -1,16 +1,18 @@
 # Nest Hexagonal Boilerplate
 
-Boilerplate de NestJS + TypeScript + Drizzle ORM (PostgreSQL) + Storage configurable (local o S3) + Mail con [react.email](https://react.email/) con arquitectura hexagonal simple y copiable. Usa **pnpm**.
+Boilerplate de NestJS + TypeScript + Drizzle ORM (PostgreSQL) + Storage configurable (local o S3) + Mail con [react.email](https://react.email/) + Auth JWT (access + refresh) con bcrypt, todo con arquitectura hexagonal simple y copiable. Usa **pnpm**.
 
 ## Stack
 
 - **NestJS 10** + TypeScript estricto
 - **Drizzle ORM** (`postgres-js`) — schemas en TS puro, sin codegen
+- **Auth**: JWT con `@nestjs/jwt` (access + refresh tokens) + **bcrypt** para hashing de password, guard global con `@Public()` opt-out
 - **Storage**: driver `local` o `s3` seleccionable por env (compatible con MinIO/R2)
 - **Mail**: templates con **React Email** + transport `smtp` (nodemailer) o `log` (dev)
 - **class-validator** + **class-transformer** para DTOs y validación de env
 - **@nestjs/config** con validación tipada
-- **Swagger** en `/api/docs`
+- **Swagger** en `/api/docs` (con `Authorize` para Bearer token)
+- **Postman**: colección lista en `postman/nest-hexagonal-auth.postman_collection.json`
 
 ## Estructura
 
@@ -38,6 +40,11 @@ src/
 │   │   └── templates/
 │   │       ├── _components/base-layout.tsx
 │   │       └── welcome.email.tsx
+│   ├── security/                 # password hashing (port + bcrypt adapter)
+│   │   ├── security.module.ts    # @Global
+│   │   ├── security.tokens.ts
+│   │   ├── ports/password-hasher.service.ts
+│   │   └── adapters/bcrypt-password-hasher.ts
 │   └── filters/domain-exception.filter.ts
 │
 └── modules/
@@ -56,6 +63,21 @@ src/
     │   │       ├── user.mapper.ts
     │   │       └── drizzle-user.repository.ts
     │   └── users.module.ts
+    │
+    ├── auth/                     # JWT login + refresh + guard global
+    │   ├── domain/
+    │   │   ├── exceptions/auth.exceptions.ts
+    │   │   └── ports/token.service.ts
+    │   ├── application/
+    │   │   ├── dtos/{login,refresh-token,token-pair.response}.ts
+    │   │   └── use-cases/{login,refresh-token}.use-case.ts
+    │   ├── infrastructure/
+    │   │   ├── http/auth.controller.ts
+    │   │   ├── http/jwt-auth.guard.ts        # APP_GUARD (global)
+    │   │   ├── http/public.decorator.ts      # @Public() opt-out
+    │   │   ├── http/current-user.decorator.ts# @CurrentUser()
+    │   │   └── services/jwt-token.service.ts # adapter de TokenService
+    │   └── auth.module.ts
     │
     └── files/                    # ejemplo consumiendo storage
         ├── application/use-cases/
@@ -149,6 +171,96 @@ Cada `*.email.tsx` con `default export` aparece en la lista; `PreviewProps` defi
 ### Cambiar de proveedor (Resend, SES, etc.)
 
 Crea un adapter que implemente `MailService` y añádelo al `switch` de `mail.module.ts`. Los use-cases y los templates no cambian.
+
+## Auth (JWT + bcrypt)
+
+El módulo `auth` implementa login con email/password, emite un par **access + refresh token** firmados con secretos independientes, y aplica un guard global a toda la API. El registro y el login son los únicos endpoints abiertos por defecto; el resto requiere `Authorization: Bearer <accessToken>`.
+
+```bash
+# auth (JWT)
+JWT_ACCESS_SECRET=change-me-access
+JWT_ACCESS_EXPIRES_IN=15m          # acepta s/m/h/d → "15m", "1h", "7d", "3600"
+JWT_REFRESH_SECRET=change-me-refresh
+JWT_REFRESH_EXPIRES_IN=7d
+BCRYPT_ROUNDS=10                   # rango válido 4–15
+```
+
+### Endpoints
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/api/users` | público | Registra un usuario (hashea la password con bcrypt) |
+| `POST` | `/api/auth/login` | público | Devuelve `{ accessToken, refreshToken, tokenType, expiresIn }` |
+| `POST` | `/api/auth/refresh` | público | Intercambia un refresh token por un nuevo par |
+| `GET`  | `/api/auth/me` | bearer | Usuario actual (lee `req.user` inyectado por el guard) |
+| `GET/PATCH/DELETE` | `/api/users/...` | bearer | CRUD protegido |
+
+### Guard global + `@Public()`
+
+`JwtAuthGuard` se registra como `APP_GUARD` en `auth.module.ts`, así toda ruta es protegida por defecto. Para abrir una ruta usa el decorator `@Public()`:
+
+```ts
+import { Public } from '@modules/auth/infrastructure/http/public.decorator';
+
+@Post()
+@Public()
+async create(@Body() dto: CreateUserDto) { ... }
+```
+
+### Leer el usuario autenticado
+
+El guard pone `{ id, email }` en `req.user`. Usa `@CurrentUser()` en cualquier handler protegido:
+
+```ts
+import { CurrentUser, type AuthenticatedUser } from '@modules/auth/infrastructure/http/current-user.decorator';
+
+@Get('me')
+async me(@CurrentUser() current: AuthenticatedUser) {
+  return this.getUser.execute(current.id);
+}
+```
+
+### Hexagonal: port + adapter
+
+- **Port** `TokenService` (`modules/auth/domain/ports/token.service.ts`): `signPair`, `verifyAccess`, `verifyRefresh`. El payload (`sub`, `email`) vive en el dominio.
+- **Adapter** `JwtTokenService` (`modules/auth/infrastructure/services/`): usa `@nestjs/jwt`, lee secretos/expiraciones del `ConfigService`, parsea duraciones tipo `"15m"`/`"7d"`/`"3600"`.
+- **Excepciones** `InvalidCredentialsException` y `InvalidTokenException` (code `INVALID_CREDENTIALS` / `INVALID_TOKEN`, `401`) — pasan por el `DomainExceptionFilter`.
+
+Cambiar de proveedor (Auth0, Clerk, JWKS remoto, sesiones server-side) = un adapter nuevo de `TokenService`. Los use-cases (`LoginUseCase`, `RefreshTokenUseCase`) no cambian.
+
+### Password hashing (`shared/security`)
+
+Mismo patrón: port `PasswordHasher` (`hash` / `compare`) + adapter `BcryptPasswordHasher`. Es `@Global`, así cualquier use-case (registro, login, change-password, etc.) inyecta `PASSWORD_HASHER` sin importar el módulo. Cambiar a argon2 = un adapter nuevo.
+
+```ts
+constructor(@Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher) {}
+const hash = await this.hasher.hash(plain);
+const ok   = await this.hasher.compare(plain, hash);
+```
+
+### Probar el flujo
+
+`postman/nest-hexagonal-auth.postman_collection.json` trae los requests (register → login → me → refresh) preconfigurados — importa la colección y arranca. También puedes hacerlo desde Swagger (`/api/docs`) usando el botón **Authorize**.
+
+```bash
+# 1. registro
+curl -X POST http://localhost:3000/api/users \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane@doe.com","name":"Jane","password":"secret123"}'
+
+# 2. login → guarda accessToken y refreshToken
+curl -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane@doe.com","password":"secret123"}'
+
+# 3. ruta protegida
+curl http://localhost:3000/api/auth/me -H "Authorization: Bearer $ACCESS"
+
+# 4. refresh cuando expire el access
+curl -X POST http://localhost:3000/api/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d "{\"refreshToken\":\"$REFRESH\"}"
+```
 
 ## Crear un módulo nuevo
 
@@ -299,8 +411,9 @@ pnpm db:studio                                             # Drizzle Studio en e
 ```
 
 - API: `http://localhost:3000/api`
-- Swagger: `http://localhost:3000/api/docs`
+- Swagger: `http://localhost:3000/api/docs` (botón **Authorize** para Bearer)
 - React Email preview: `pnpm email:dev` → `http://localhost:3001`
+- Postman: importa `postman/nest-hexagonal-auth.postman_collection.json`
 
 ## Comandos (pnpm)
 
