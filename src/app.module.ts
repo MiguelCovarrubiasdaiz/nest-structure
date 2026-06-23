@@ -10,6 +10,7 @@ import { validateEnv } from '@shared/config/env.validation';
 import { AuthModule } from '@modules/auth/auth.module';
 import { UsersModule } from '@modules/users/users.module';
 import { FilesModule } from '@modules/files/files.module';
+import { NotificationsModule } from '@modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { FilesModule } from '@modules/files/files.module';
     UsersModule,
     AuthModule,
     FilesModule,
+    NotificationsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
 })

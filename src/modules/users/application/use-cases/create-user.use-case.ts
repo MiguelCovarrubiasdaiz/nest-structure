@@ -6,9 +6,13 @@ import type { MailService } from '@shared/mail/ports/mail.service';
 import { WelcomeEmail } from '@shared/mail/templates/welcome.email';
 import { PASSWORD_HASHER } from '@shared/security/security.tokens';
 import type { PasswordHasher } from '@shared/security/ports/password-hasher.service';
+import { SendNotificationUseCase } from '@modules/notifications/application/use-cases/send-notification.use-case';
 import { User } from '../../domain/entities/user.entity';
 import { UserAlreadyExistsException } from '../../domain/exceptions/user.exceptions';
-import { USER_REPOSITORY, type UserRepository } from '../../domain/ports/user.repository';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '../../domain/ports/user.repository';
 import { CreateUserDto } from '../dtos/create-user.dto';
 
 @Injectable()
@@ -19,6 +23,7 @@ export class CreateUserUseCase {
     @Inject(USER_REPOSITORY) private readonly repo: UserRepository,
     @Inject(MAIL_SERVICE) private readonly mail: MailService,
     @Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher,
+    private readonly notify: SendNotificationUseCase,
   ) {}
 
   async execute(dto: CreateUserDto): Promise<User> {
@@ -53,6 +58,9 @@ export class CreateUserUseCase {
         `Welcome email failed for ${saved.email}: ${(err as Error).message}`,
       );
     }
+
+    // VIOLATION: await without try/catch — if Slack is down, registration breaks
+    await this.notify.execute(saved.id, `New user signed up: ${saved.email}`);
 
     return saved;
   }
