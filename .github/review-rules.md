@@ -2,55 +2,38 @@
 id: no-console-log
 severity: warning
 ---
-
-No dejes `console.log`, `console.error` o cualquier `console.*` en código de producción. Sugiere usar el `Logger` de NestJS (`new Logger(ClassName.name)`).
+Do not leave `console.log`, `console.error`, or any `console.*` calls in production code. Suggest using the NestJS `Logger` (`new Logger(ClassName.name)`) instead.
 
 ---
-
 id: no-hardcoded-secrets
 severity: error
+---
+Detect secrets hardcoded in source: API keys, tokens, passwords, JWT secrets, or connection strings with embedded credentials. These values MUST come from `ConfigService` / environment variables, never as string literals in code.
 
 ---
-
-Detecta secretos hardcodeados en el código: API keys, tokens, contraseñas, JWT secrets, connection strings con credenciales. Estos valores deben venir de `ConfigService` / variables de entorno, nunca como string literal en el código.
-
----
-
 id: handle-async-errors
 severity: warning
+---
+Every `await` call against an operation that can fail (HTTP, DB, FS, third-party SDK) inside an `async` function must be wrapped in `try/catch` or have explicit error handling. If it is not, flag the risk.
 
 ---
-
-Toda llamada `await` a una operación que puede fallar (HTTP, DB, FS, terceros) dentro de un `async` debe estar envuelta en `try/catch` o tener manejo explícito de error. Si no, marca el riesgo.
-
----
-
 id: missing-input-validation
 severity: warning
+---
+HTTP endpoints that accept `@Body()`, `@Query()`, or `@Param()` must validate the input with a DTO using `class-validator` decorators. If you see raw `any` / primitive types without a validated DTO, flag it.
 
 ---
-
-Endpoints HTTP que reciben `@Body()`, `@Query()` o `@Param()` deben validar con DTOs (`class-validator`). Si ves uso de `any` o un tipo sin validadores, repórtalo.
-
----
-
 id: no-magic-numbers
 severity: info
+---
+Avoid magic numbers (numeric literals without a name, except `0`, `1`, `-1`). Suggest extracting them into named constants with semantic names.
 
 ---
-
-Evita números mágicos (literales numéricos sin nombre, salvo 0/1/-1). Sugiere extraerlos a constantes con nombres semánticos.
-
----
-
 id: hexagonal-boundaries
 severity: warning
-
 ---
-
-Este proyecto usa arquitectura hexagonal. Reglas:
-
-- Los `controllers` (en `infrastructure/http`) NO deben importar repositorios concretos (clases con prefijo `Drizzle*`).
-- Los `use-cases` (en `application/use-cases`) NO deben importar de `infrastructure/http`.
-- Las `entities` y `ports` (en `domain/`) NO deben importar nada de `application/` o `infrastructure/`.
-  Si ves una violación, reporta el archivo, la línea del import problemático y sugiere refactor.
+This project follows hexagonal architecture. Enforce:
+- Controllers (in `infrastructure/http`) MUST NOT import concrete repositories (classes prefixed with `Drizzle*`).
+- Use-cases (in `application/use-cases`) MUST NOT import from `infrastructure/http`.
+- Entities and ports (in `domain/`) MUST NOT import anything from `application/` or `infrastructure/`.
+If you spot a violation, report the file, the line of the offending import, and suggest a refactor.
