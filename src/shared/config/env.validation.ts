@@ -60,7 +60,9 @@ export class EnvironmentVariables {
   @IsEnum(StorageDriver)
   STORAGE_DRIVER!: StorageDriver;
 
-  @ValidateIf((o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.Local)
+  @ValidateIf(
+    (o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.Local,
+  )
   @IsString()
   STORAGE_LOCAL_PATH?: string;
 
@@ -68,11 +70,15 @@ export class EnvironmentVariables {
   @IsString()
   STORAGE_LOCAL_PUBLIC_URL?: string;
 
-  @ValidateIf((o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3)
+  @ValidateIf(
+    (o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3,
+  )
   @IsString()
   STORAGE_S3_BUCKET?: string;
 
-  @ValidateIf((o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3)
+  @ValidateIf(
+    (o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3,
+  )
   @IsString()
   STORAGE_S3_REGION?: string;
 
@@ -137,15 +143,38 @@ export class EnvironmentVariables {
   @Min(4)
   @Max(15)
   BCRYPT_ROUNDS: number = 10;
+
+  // Comma-separated allowed origins. Empty → same-origin only.
+  // Example: "http://localhost:3000,https://app.example.com"
+  @IsOptional()
+  @IsString()
+  CORS_ORIGINS?: string;
+
+  // Throttler — global default (per-IP, sliding window).
+  @IsInt()
+  @Min(1)
+  THROTTLE_TTL_SECONDS: number = 60;
+
+  @IsInt()
+  @Min(1)
+  THROTTLE_LIMIT: number = 60;
 }
 
-export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
+export function validateEnv(
+  config: Record<string, unknown>,
+): EnvironmentVariables {
   // NOTE: do NOT enable implicit conversion. class-transformer's implicit
   // boolean coercion does `Boolean("false") === true`, which silently breaks
   // any boolean env flag. We rely on explicit @Transform decorators for
   // type coercion (toBool for booleans, Number for ints).
   const coerced: Record<string, unknown> = { ...config };
-  for (const key of ['PORT', 'MAIL_SMTP_PORT', 'BCRYPT_ROUNDS']) {
+  for (const key of [
+    'PORT',
+    'MAIL_SMTP_PORT',
+    'BCRYPT_ROUNDS',
+    'THROTTLE_TTL_SECONDS',
+    'THROTTLE_LIMIT',
+  ]) {
     if (typeof coerced[key] === 'string') coerced[key] = Number(coerced[key]);
   }
   const validated = plainToInstance(EnvironmentVariables, coerced);

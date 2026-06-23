@@ -1,5 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { GetUserUseCase } from '@modules/users/application/use-cases/get-user.use-case';
 import { UserResponse } from '@modules/users/application/dtos/user.response';
 import { LoginDto } from '../../application/dtos/login.dto';
@@ -22,6 +30,8 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(HttpStatus.OK)
+  // Stricter throttle on login: 5 attempts per minute per IP to slow brute-force.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Authenticate with email + password' })
   async loginHandler(@Body() dto: LoginDto): Promise<TokenPairResponse> {
     const pair = await this.login.execute(dto);
@@ -31,8 +41,11 @@ export class AuthController {
   @Post('refresh')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @ApiOperation({ summary: 'Exchange a refresh token for a new token pair' })
-  async refreshHandler(@Body() dto: RefreshTokenDto): Promise<TokenPairResponse> {
+  async refreshHandler(
+    @Body() dto: RefreshTokenDto,
+  ): Promise<TokenPairResponse> {
     const pair = await this.refresh.execute(dto);
     return TokenPairResponse.fromDomain(pair);
   }

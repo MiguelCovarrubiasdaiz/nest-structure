@@ -1,0 +1,40 @@
+node_modules
+dist
+coverage
+.git
+.github
+.husky
+.vscode
+.idea
+.next
+.react-email
+
+# Local dev only — never bake into image
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor swap
+*.swp
+
+# Tests & docs not needed at runtime
+README.md
+LICENSE
+postman
+scripts
+docker-compose.yml
+Dockerfile
+.dockerignore
+.prettierrc
+.prettierignore
+.eslintrc.js
+jest.config.ts
+jest.setup.ts
