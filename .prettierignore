@@ -5,3 +5,4 @@ coverage/
 uploads/
 pnpm-lock.yaml
 drizzle/
+.github/review-rules.md
