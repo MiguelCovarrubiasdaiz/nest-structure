@@ -23,7 +23,7 @@ export class WebhookReceiverController {
   @ApiOperation({ summary: 'Receive an incoming webhook' })
   async receive(@Body() body: ReceiveWebhookDto): Promise<{ ok: boolean }> {
     try {
-      await this.process.execute(body.userId, body.event);
+      await this.process.execute(body);
     } catch (err) {
       this.logger.error(
         `Webhook processing failed for user ${body.userId}: ${(err as Error).message}`,

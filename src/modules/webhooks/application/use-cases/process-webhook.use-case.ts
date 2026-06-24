@@ -4,6 +4,7 @@ import {
   USER_REPOSITORY,
   type UserRepository,
 } from '@modules/users/domain/ports/user.repository';
+import { ReceiveWebhookDto } from '../dtos/receive-webhook.dto';
 
 const DELIVER_DELAY_MS = 5000;
 
@@ -20,7 +21,8 @@ export class ProcessWebhookUseCase {
     this.secret = config.getOrThrow<string>('WEBHOOK_SECRET');
   }
 
-  async execute(userId: string, event: string): Promise<void> {
+  async execute(input: ReceiveWebhookDto): Promise<void> {
+    const { userId, event } = input;
     this.logger.log(`Processing webhook ${event} for user ${userId}`);
 
     let user;
@@ -34,8 +36,13 @@ export class ProcessWebhookUseCase {
     }
     if (!user) return;
 
+    const { email } = user;
     setTimeout(() => {
-      void this.deliver(user.email, event);
+      this.deliver(email, event).catch((err: unknown) => {
+        this.logger.error(
+          `Delivery of webhook ${event} to user ${userId} failed: ${(err as Error).message}`,
+        );
+      });
     }, DELIVER_DELAY_MS);
   }
 
