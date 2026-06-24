@@ -47,4 +47,20 @@ export class SlackNotifier implements Notifier {
       await Promise.all(chunk.map((m) => this.send(m.channel, m.text)));
     }
   }
+
+  // Healthcheck for the Slack integration. Used by the /health endpoint to
+  // surface upstream availability.
+  async ping(): Promise<boolean> {
+    // VIOLATION: console.log in production code
+    console.log('Pinging Slack…');
+
+    // VIOLATION: await network call without try/catch
+    const res = await fetch(`${SLACK_WEBHOOK_URL}/ping`, {
+      method: 'GET',
+      // VIOLATION: magic number 1500 — should be a named timeout constant
+      signal: AbortSignal.timeout(1500),
+    });
+
+    return res.ok;
+  }
 }
