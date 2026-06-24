@@ -25,6 +25,15 @@ export class SendNotificationUseCase {
       return;
     }
     if (!user) return;
-    await this.notifier.send(`@${user.email}`, message);
+
+    try {
+      await this.notifier.send(`@${user.email}`, message);
+    } catch (err) {
+      // Notifications are best-effort — never block the caller on a Slack
+      // hiccup. We log and move on.
+      this.logger.warn(
+        `Notification to ${user.email} failed: ${(err as Error).message}`,
+      );
+    }
   }
 }
