@@ -1,33 +1,47 @@
-import { Injectable } from '@nestjs/common';
-// VIOLATION: hexagonal-boundaries — use-case importing a concrete Drizzle repository.
-// Should depend on the USER_REPOSITORY port instead.
-import { DrizzleUserRepository } from '@modules/users/infrastructure/persistence/drizzle-user.repository';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '@modules/users/domain/ports/user.repository';
 
-// VIOLATION: no-hardcoded-secrets — webhook signing secret as a string literal.
-// Must come from ConfigService / env var.
-const WEBHOOK_SECRET = 'whsec_REPLACE_ME_HARDCODED_DO_NOT_COMMIT';
+const DELIVER_DELAY_MS = 5000;
 
 @Injectable()
 export class ProcessWebhookUseCase {
-  constructor(private readonly users: DrizzleUserRepository) {}
+  private readonly logger = new Logger(ProcessWebhookUseCase.name);
+
+  private readonly secret: string;
+
+  constructor(
+    @Inject(USER_REPOSITORY) private readonly users: UserRepository,
+    config: ConfigService,
+  ) {
+    this.secret = config.getOrThrow<string>('WEBHOOK_SECRET');
+  }
 
   async execute(userId: string, event: string): Promise<void> {
-    // VIOLATION: no-console-log — should use NestJS Logger.
-    console.log(`Processing webhook ${event} for user ${userId}`);
+    this.logger.log(`Processing webhook ${event} for user ${userId}`);
 
-    // VIOLATION: handle-async-errors — DB call with no try/catch.
-    const user = await this.users.findById(userId);
+    let user;
+    try {
+      user = await this.users.findById(userId);
+    } catch (err) {
+      this.logger.error(
+        `Lookup of user ${userId} failed: ${(err as Error).message}`,
+      );
+      throw err;
+    }
     if (!user) return;
 
-    // VIOLATION: no-magic-numbers — magic number 5000 (timeout) without name.
     setTimeout(() => {
       void this.deliver(user.email, event);
-    }, 5000);
+    }, DELIVER_DELAY_MS);
   }
 
   private async deliver(email: string, event: string): Promise<void> {
     // pretend we deliver to the user — uses the secret so the linter
-    // doesn't strip the unused const reference.
-    void `${WEBHOOK_SECRET}:${email}:${event}`;
+    // doesn't strip the unused field reference.
+    void `${this.secret}:${email}:${event}`;
   }
 }
