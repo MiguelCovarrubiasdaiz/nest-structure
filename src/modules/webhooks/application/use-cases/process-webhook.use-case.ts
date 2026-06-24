@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import {
   Inject,
   Injectable,
@@ -9,19 +9,12 @@ import {
   USER_REPOSITORY,
   type UserRepository,
 } from '@modules/users/domain/ports/user.repository';
+import { obfuscateUserId } from '@shared/security/obfuscate-id';
 import {
   WEBHOOK_CONFIG,
   type WebhookConfig,
 } from '../../domain/ports/webhook.config';
 import { ProcessWebhookCommand } from '../commands/process-webhook.command';
-
-const USER_ID_HASH_LENGTH = 12;
-
-const obfuscateUserId = (userId: string): string =>
-  createHash('sha256')
-    .update(userId)
-    .digest('hex')
-    .slice(0, USER_ID_HASH_LENGTH);
 
 @Injectable()
 export class ProcessWebhookUseCase implements OnModuleDestroy {
