@@ -46,13 +46,11 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
     const { email } = user;
     const timer = setTimeout(() => {
       this.pending.delete(timer);
-      Promise.resolve()
-        .then(() => this.deliver(email, event))
-        .catch((err: unknown) => {
-          this.logger.error(
-            `Delivery of webhook ${event} to user ${userRef} failed: ${(err as Error).message}`,
-          );
-        });
+      this.deliver(email, event).catch((err: unknown) => {
+        this.logger.error(
+          `Delivery of webhook ${event} to user ${userRef} failed: ${(err as Error).message}`,
+        );
+      });
     }, this.config.deliverDelayMs);
     this.pending.add(timer);
   }
