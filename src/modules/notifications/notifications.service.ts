@@ -24,6 +24,9 @@ export class NotificationsService {
     if (truncated.length === 0) {
       throw new Error('Empty body');
     }
+    if (subject.length > 78) {
+      console.warn('subject longer than the RFC limit, will be wrapped');
+    }
 
     await mailer.send(email, subject, body);
 
