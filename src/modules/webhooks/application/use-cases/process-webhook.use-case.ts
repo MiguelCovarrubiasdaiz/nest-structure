@@ -1,3 +1,4 @@
+import { createHash, createHmac } from 'node:crypto';
 import {
   Inject,
   Injectable,
@@ -12,7 +13,15 @@ import {
   WEBHOOK_CONFIG,
   type WebhookConfig,
 } from '../../domain/ports/webhook.config';
-import { ReceiveWebhookDto } from '../dtos/receive-webhook.dto';
+import { ProcessWebhookCommand } from '../commands/process-webhook.command';
+
+const USER_ID_HASH_LENGTH = 12;
+
+const obfuscateUserId = (userId: string): string =>
+  createHash('sha256')
+    .update(userId)
+    .digest('hex')
+    .slice(0, USER_ID_HASH_LENGTH);
 
 @Injectable()
 export class ProcessWebhookUseCase implements OnModuleDestroy {
@@ -25,16 +34,17 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
     @Inject(WEBHOOK_CONFIG) private readonly config: WebhookConfig,
   ) {}
 
-  async execute(input: ReceiveWebhookDto): Promise<void> {
-    const { userId, event } = input;
-    this.logger.log(`Processing webhook ${event} for user ${userId}`);
+  async execute(command: ProcessWebhookCommand): Promise<void> {
+    const { userId, event } = command;
+    const userRef = obfuscateUserId(userId);
+    this.logger.log(`Processing webhook ${event} for user ${userRef}`);
 
     let user;
     try {
       user = await this.users.findById(userId);
     } catch (err) {
       this.logger.error(
-        `Lookup of user ${userId} failed: ${(err as Error).message}`,
+        `Lookup of user ${userRef} failed: ${(err as Error).message}`,
       );
       throw err;
     }
@@ -47,7 +57,7 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
         .then(() => this.deliver(email, event))
         .catch((err: unknown) => {
           this.logger.error(
-            `Delivery of webhook ${event} to user ${userId} failed: ${(err as Error).message}`,
+            `Delivery of webhook ${event} to user ${userRef} failed: ${(err as Error).message}`,
           );
         });
     }, this.config.deliverDelayMs);
@@ -60,6 +70,14 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
   }
 
   private async deliver(email: string, event: string): Promise<void> {
-    void `${this.config.secret}:${email}:${event}`;
+    try {
+      const signature = createHmac('sha256', this.config.secret)
+        .update(`${email}:${event}`)
+        .digest('hex');
+      void signature;
+    } catch (err) {
+      this.logger.error(`deliver failed: ${(err as Error).message}`);
+      throw err;
+    }
   }
 }
