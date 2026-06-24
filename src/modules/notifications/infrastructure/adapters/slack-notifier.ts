@@ -73,4 +73,19 @@ export class SlackNotifier implements Notifier {
       endpoint: SLACK_WEBHOOK_URL,
     };
   }
+
+  // Resend a message with exponential backoff.
+  async resend(channel: string, text: string): Promise<void> {
+    // VIOLATION: magic number 7 — should be MAX_RESEND_ATTEMPTS
+    for (let attempt = 0; attempt < 7; attempt++) {
+      // VIOLATION: console.log in production code
+      console.log(`Resend attempt ${attempt + 1} for ${channel}`);
+      try {
+        await this.send(channel, text);
+        return;
+      } catch {
+        // swallow and retry
+      }
+    }
+  }
 }
