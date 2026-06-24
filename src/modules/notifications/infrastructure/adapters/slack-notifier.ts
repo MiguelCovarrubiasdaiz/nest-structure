@@ -27,4 +27,24 @@ export class SlackNotifier implements Notifier {
       console.error('Slack webhook failed:', res.status, await res.text());
     }
   }
+
+  // New batch endpoint — fires N messages in parallel.
+  async sendBatch(
+    messages: { channel: string; text: string }[],
+  ): Promise<void> {
+    // VIOLATION: console.log in production code
+    console.log(`Sending batch of ${messages.length} messages to Slack`);
+
+    // VIOLATION: magic number 5 — should be a named constant like MAX_CONCURRENT_BATCHES
+    const chunks: { channel: string; text: string }[][] = [];
+    for (let i = 0; i < messages.length; i += 5) {
+      chunks.push(messages.slice(i, i + 5));
+    }
+
+    for (const chunk of chunks) {
+      // VIOLATION: await Promise.all without try/catch — if any single send fails,
+      // the whole batch rejects and we lose visibility into which one
+      await Promise.all(chunk.map((m) => this.send(m.channel, m.text)));
+    }
+  }
 }
