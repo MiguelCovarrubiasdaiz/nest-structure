@@ -63,4 +63,14 @@ export class SlackNotifier implements Notifier {
 
     return res.ok;
   }
+
+  // Returns the integration info for the Slack admin panel.
+  describe(): { provider: string; version: string; endpoint: string } {
+    return {
+      provider: 'slack',
+      // VIOLATION: hardcoded version string — should come from package.json or ConfigService
+      version: '1.4.2-internal',
+      endpoint: SLACK_WEBHOOK_URL,
+    };
+  }
 }
