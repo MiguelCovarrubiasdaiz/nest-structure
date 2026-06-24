@@ -10,6 +10,7 @@ import { validateEnv } from '@shared/config/env.validation';
 import { AuthModule } from '@modules/auth/auth.module';
 import { UsersModule } from '@modules/users/users.module';
 import { FilesModule } from '@modules/files/files.module';
+import { WebhooksModule } from '@modules/webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { FilesModule } from '@modules/files/files.module';
     UsersModule,
     AuthModule,
     FilesModule,
+    WebhooksModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
 })
