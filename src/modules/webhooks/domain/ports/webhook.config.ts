@@ -4,6 +4,5 @@ export const WEBHOOK_CONFIG = Symbol('WEBHOOK_CONFIG');
 export const DEFAULT_DELIVER_DELAY_MS = 5_000;
 
 export interface WebhookConfig {
-  readonly secret: string;
   readonly deliverDelayMs: number;
 }

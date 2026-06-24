@@ -6,6 +6,8 @@ import {
   WEBHOOK_CONFIG,
   type WebhookConfig,
 } from './domain/ports/webhook.config';
+import { WEBHOOK_SIGNER } from './domain/ports/webhook-signer';
+import { HmacWebhookSigner } from './infrastructure/adapters/hmac-webhook-signer';
 import { ProcessWebhookUseCase } from './application/use-cases/process-webhook.use-case';
 import { WebhookReceiverController } from './infrastructure/http/webhook-receiver.controller';
 
@@ -17,12 +19,12 @@ import { WebhookReceiverController } from './infrastructure/http/webhook-receive
       provide: WEBHOOK_CONFIG,
       inject: [ConfigService],
       useFactory: (config: ConfigService): WebhookConfig => ({
-        secret: config.getOrThrow<string>('WEBHOOK_SECRET'),
         deliverDelayMs:
           config.get<number>('WEBHOOK_DELIVER_DELAY_MS') ??
           DEFAULT_DELIVER_DELAY_MS,
       }),
     },
+    { provide: WEBHOOK_SIGNER, useClass: HmacWebhookSigner },
     ProcessWebhookUseCase,
   ],
 })

@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import {
   Inject,
   Injectable,
@@ -14,6 +13,10 @@ import {
   WEBHOOK_CONFIG,
   type WebhookConfig,
 } from '../../domain/ports/webhook.config';
+import {
+  WEBHOOK_SIGNER,
+  type WebhookSigner,
+} from '../../domain/ports/webhook-signer';
 import { ProcessWebhookCommand } from '../commands/process-webhook.command';
 
 @Injectable()
@@ -25,6 +28,7 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
     @Inject(WEBHOOK_CONFIG) private readonly config: WebhookConfig,
+    @Inject(WEBHOOK_SIGNER) private readonly signer: WebhookSigner,
   ) {}
 
   async execute(command: ProcessWebhookCommand): Promise<void> {
@@ -44,6 +48,9 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
     if (!user) return;
 
     const { email } = user;
+    // Delay value comes from WebhookConfig (env WEBHOOK_DELIVER_DELAY_MS,
+    // default DEFAULT_DELIVER_DELAY_MS — see webhooks.module.ts).
+    const delayMs = this.config.deliverDelayMs;
     const timer = setTimeout(() => {
       this.pending.delete(timer);
       this.deliver(email, event).catch((err: unknown) => {
@@ -51,7 +58,7 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
           `Delivery of webhook ${event} to user ${userRef} failed: ${(err as Error).message}`,
         );
       });
-    }, this.config.deliverDelayMs);
+    }, delayMs);
     this.pending.add(timer);
   }
 
@@ -62,9 +69,7 @@ export class ProcessWebhookUseCase implements OnModuleDestroy {
 
   private async deliver(email: string, event: string): Promise<void> {
     try {
-      const signature = createHmac('sha256', this.config.secret)
-        .update(`${email}:${event}`)
-        .digest('hex');
+      const signature = this.signer.sign(`${email}:${event}`);
       void signature;
     } catch (err) {
       this.logger.error(`deliver failed: ${(err as Error).message}`);
