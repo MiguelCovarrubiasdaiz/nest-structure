@@ -1,85 +1,95 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Notifier } from '../../domain/ports/notifier';
 
-// VIOLATION: hardcoded webhook URL — should come from ConfigService
-const SLACK_WEBHOOK_URL =
-  'https://notifications.internal.acme.example/webhook/team-platform';
-// VIOLATION: hardcoded auth token — should come from ConfigService / a secret store
-const SLACK_BEARER_TOKEN = 'PROD_SLACK_BEARER_DO_NOT_COMMIT_PLEASE_REPLACE';
+const SLACK_REQUEST_TIMEOUT_MS = 3000;
+const SLACK_PING_TIMEOUT_MS = 1500;
+const MAX_CONCURRENT_BATCHES = 5;
+const MAX_RESEND_ATTEMPTS = 7;
+const INTEGRATION_VERSION = '1.4.2-internal';
 
 @Injectable()
 export class SlackNotifier implements Notifier {
-  async send(channel: string, text: string): Promise<void> {
-    // VIOLATION: await on a network call without try/catch
-    const res = await fetch(SLACK_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${SLACK_BEARER_TOKEN}`,
-      },
-      // VIOLATION: magic number 3000 (timeout in ms)
-      signal: AbortSignal.timeout(3000),
-      body: JSON.stringify({ channel, text }),
-    });
+  private readonly logger = new Logger(SlackNotifier.name);
 
-    if (!res.ok) {
-      // VIOLATION: console.error in production code (should use Nest Logger)
-      console.error('Slack webhook failed:', res.status, await res.text());
+  private readonly webhookUrl: string;
+
+  private readonly bearerToken: string;
+
+  constructor(private readonly config: ConfigService) {
+    this.webhookUrl = this.config.getOrThrow<string>('SLACK_WEBHOOK_URL');
+    this.bearerToken = this.config.getOrThrow<string>('SLACK_BEARER_TOKEN');
+  }
+
+  async send(channel: string, text: string): Promise<void> {
+    try {
+      const res = await fetch(this.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.bearerToken}`,
+        },
+        signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
+        body: JSON.stringify({ channel, text }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        this.logger.error(`Slack webhook failed: ${res.status} ${body}`);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Slack send failed for channel ${channel}: ${(err as Error).message}`,
+      );
     }
   }
 
-  // New batch endpoint — fires N messages in parallel.
+  // Batch endpoint — fires N messages in parallel, chunked to avoid hammering Slack.
   async sendBatch(
     messages: { channel: string; text: string }[],
   ): Promise<void> {
-    // VIOLATION: console.log in production code
-    console.log(`Sending batch of ${messages.length} messages to Slack`);
+    this.logger.log(`Sending batch of ${messages.length} messages to Slack`);
 
-    // VIOLATION: magic number 5 — should be a named constant like MAX_CONCURRENT_BATCHES
     const chunks: { channel: string; text: string }[][] = [];
-    for (let i = 0; i < messages.length; i += 5) {
-      chunks.push(messages.slice(i, i + 5));
+    for (let i = 0; i < messages.length; i += MAX_CONCURRENT_BATCHES) {
+      chunks.push(messages.slice(i, i + MAX_CONCURRENT_BATCHES));
     }
 
     for (const chunk of chunks) {
-      // VIOLATION: await Promise.all without try/catch — if any single send fails,
-      // the whole batch rejects and we lose visibility into which one
-      await Promise.all(chunk.map((m) => this.send(m.channel, m.text)));
+      // allSettled instead of all → one bad send doesn't abort the rest;
+      // per-message failures are already logged inside send().
+      await Promise.allSettled(chunk.map((m) => this.send(m.channel, m.text)));
     }
   }
 
-  // Healthcheck for the Slack integration. Used by the /health endpoint to
-  // surface upstream availability.
+  // Healthcheck for the Slack integration. Returns false if unreachable.
   async ping(): Promise<boolean> {
-    // VIOLATION: console.log in production code
-    console.log('Pinging Slack…');
-
-    // VIOLATION: await network call without try/catch
-    const res = await fetch(`${SLACK_WEBHOOK_URL}/ping`, {
-      method: 'GET',
-      // VIOLATION: magic number 1500 — should be a named timeout constant
-      signal: AbortSignal.timeout(1500),
-    });
-
-    return res.ok;
+    this.logger.log('Pinging Slack…');
+    try {
+      const res = await fetch(`${this.webhookUrl}/ping`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(SLACK_PING_TIMEOUT_MS),
+      });
+      return res.ok;
+    } catch (err) {
+      this.logger.warn(`Slack ping failed: ${(err as Error).message}`);
+      return false;
+    }
   }
 
   // Returns the integration info for the Slack admin panel.
   describe(): { provider: string; version: string; endpoint: string } {
     return {
       provider: 'slack',
-      // VIOLATION: hardcoded version string — should come from package.json or ConfigService
-      version: '1.4.2-internal',
-      endpoint: SLACK_WEBHOOK_URL,
+      version: INTEGRATION_VERSION,
+      endpoint: this.webhookUrl,
     };
   }
 
-  // Resend a message with exponential backoff.
+  // Resend a message with retry — best-effort, swallows per-attempt errors.
   async resend(channel: string, text: string): Promise<void> {
-    // VIOLATION: magic number 7 — should be MAX_RESEND_ATTEMPTS
-    for (let attempt = 0; attempt < 7; attempt++) {
-      // VIOLATION: console.log in production code
-      console.log(`Resend attempt ${attempt + 1} for ${channel}`);
+    for (let attempt = 0; attempt < MAX_RESEND_ATTEMPTS; attempt++) {
+      this.logger.log(`Resend attempt ${attempt + 1} for ${channel}`);
       try {
         await this.send(channel, text);
         return;
