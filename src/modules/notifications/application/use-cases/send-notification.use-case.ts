@@ -1,18 +1,29 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { NOTIFIER, type Notifier } from '../../domain/ports/notifier';
-// VIOLATION: use-case importing a concrete Drizzle repository — breaks hexagonal boundary.
-// Should depend on the port (USER_REPOSITORY) instead.
-import { DrizzleUserRepository } from '@modules/users/infrastructure/persistence/drizzle-user.repository';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '@modules/users/domain/ports/user.repository';
 
 @Injectable()
 export class SendNotificationUseCase {
+  private readonly logger = new Logger(SendNotificationUseCase.name);
+
   constructor(
     @Inject(NOTIFIER) private readonly notifier: Notifier,
-    private readonly users: DrizzleUserRepository,
+    @Inject(USER_REPOSITORY) private readonly users: UserRepository,
   ) {}
 
   async execute(userId: string, message: string): Promise<void> {
-    const user = await this.users.findById(userId);
+    let user;
+    try {
+      user = await this.users.findById(userId);
+    } catch (err) {
+      this.logger.warn(
+        `Lookup of user ${userId} failed; skipping notification: ${(err as Error).message}`,
+      );
+      return;
+    }
     if (!user) return;
     await this.notifier.send(`@${user.email}`, message);
   }
