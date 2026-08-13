@@ -4,7 +4,9 @@ import type { StorageService } from '@shared/storage/ports/storage.service';
 
 @Injectable()
 export class GetSignedUrlUseCase {
-  constructor(@Inject(STORAGE_SERVICE) private readonly storage: StorageService) {}
+  constructor(
+    @Inject(STORAGE_SERVICE) private readonly storage: StorageService,
+  ) {}
 
   async execute(key: string, expiresInSeconds = 3600): Promise<string> {
     return this.storage.getSignedUrl(key, expiresInSeconds);

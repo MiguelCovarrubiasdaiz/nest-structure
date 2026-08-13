@@ -27,7 +27,7 @@ export function WelcomeEmail({ name, ctaUrl }: WelcomeEmailProps) {
   );
 }
 
-// react-email CLI usa el default export como preview por defecto
+// react-email CLI uses the default export as the preview by default
 WelcomeEmail.PreviewProps = {
   name: 'Jane',
   ctaUrl: 'https://example.com',

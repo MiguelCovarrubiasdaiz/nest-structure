@@ -1,14 +1,27 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { GetUserUseCase } from '@modules/users/application/use-cases/get-user.use-case';
 import { UserResponse } from '@modules/users/application/dtos/user.response';
 import { LoginDto } from '../../application/dtos/login.dto';
 import { RefreshTokenDto } from '../../application/dtos/refresh-token.dto';
 import { TokenPairResponse } from '../../application/dtos/token-pair.response';
 import { LoginUseCase } from '../../application/use-cases/login.use-case';
+import { LogoutUseCase } from '../../application/use-cases/logout.use-case';
 import { RefreshTokenUseCase } from '../../application/use-cases/refresh-token.use-case';
 import { CurrentUser, type AuthenticatedUser } from './current-user.decorator';
 import { Public } from './public.decorator';
+
+// Stricter limit on the sensitive auth endpoints: 5 requests / minute / IP, to
+// blunt brute-force and credential-stuffing attempts.
+const STRICT_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 
 @ApiTags('auth')
 @Controller('auth')
@@ -16,11 +29,13 @@ export class AuthController {
   constructor(
     private readonly login: LoginUseCase,
     private readonly refresh: RefreshTokenUseCase,
+    private readonly logout: LogoutUseCase,
     private readonly getUser: GetUserUseCase,
   ) {}
 
   @Post('login')
   @Public()
+  @Throttle(STRICT_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Authenticate with email + password' })
   async loginHandler(@Body() dto: LoginDto): Promise<TokenPairResponse> {
@@ -30,11 +45,24 @@ export class AuthController {
 
   @Post('refresh')
   @Public()
+  @Throttle(STRICT_THROTTLE)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Exchange a refresh token for a new token pair' })
-  async refreshHandler(@Body() dto: RefreshTokenDto): Promise<TokenPairResponse> {
+  @ApiOperation({
+    summary: 'Exchange a refresh token for a new token pair (rotates)',
+  })
+  async refreshHandler(
+    @Body() dto: RefreshTokenDto,
+  ): Promise<TokenPairResponse> {
     const pair = await this.refresh.execute(dto);
     return TokenPairResponse.fromDomain(pair);
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Revoke a refresh token family (logout)' })
+  async logoutHandler(@Body() dto: RefreshTokenDto): Promise<void> {
+    await this.logout.execute(dto);
   }
 
   @Get('me')

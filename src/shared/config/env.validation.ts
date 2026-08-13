@@ -6,11 +6,16 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
+  MinLength,
   ValidateIf,
   validateSync,
 } from 'class-validator';
+
+// "15m", "7d", "3600" — a positive integer with an optional s/m/h/d unit.
+const DURATION_REGEX = /^\d+[smhd]?$/;
 
 enum Environment {
   Development = 'development',
@@ -50,6 +55,11 @@ export class EnvironmentVariables {
   @IsString()
   API_PREFIX!: string;
 
+  // Comma-separated list of allowed CORS origins. When omitted, CORS is disabled.
+  @IsOptional()
+  @IsString()
+  CORS_ORIGIN?: string;
+
   @IsString()
   DATABASE_URL!: string;
 
@@ -60,7 +70,9 @@ export class EnvironmentVariables {
   @IsEnum(StorageDriver)
   STORAGE_DRIVER!: StorageDriver;
 
-  @ValidateIf((o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.Local)
+  @ValidateIf(
+    (o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.Local,
+  )
   @IsString()
   STORAGE_LOCAL_PATH?: string;
 
@@ -68,11 +80,15 @@ export class EnvironmentVariables {
   @IsString()
   STORAGE_LOCAL_PUBLIC_URL?: string;
 
-  @ValidateIf((o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3)
+  @ValidateIf(
+    (o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3,
+  )
   @IsString()
   STORAGE_S3_BUCKET?: string;
 
-  @ValidateIf((o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3)
+  @ValidateIf(
+    (o: EnvironmentVariables) => o.STORAGE_DRIVER === StorageDriver.S3,
+  )
   @IsString()
   STORAGE_S3_REGION?: string;
 
@@ -122,15 +138,25 @@ export class EnvironmentVariables {
   MAIL_SMTP_PASS?: string;
 
   @IsString()
+  @MinLength(32)
   JWT_ACCESS_SECRET!: string;
 
   @IsString()
+  @Matches(DURATION_REGEX, {
+    message:
+      'JWT_ACCESS_EXPIRES_IN must be a number optionally suffixed with s/m/h/d (e.g. "15m")',
+  })
   JWT_ACCESS_EXPIRES_IN: string = '15m';
 
   @IsString()
+  @MinLength(32)
   JWT_REFRESH_SECRET!: string;
 
   @IsString()
+  @Matches(DURATION_REGEX, {
+    message:
+      'JWT_REFRESH_EXPIRES_IN must be a number optionally suffixed with s/m/h/d (e.g. "7d")',
+  })
   JWT_REFRESH_EXPIRES_IN: string = '7d';
 
   @IsInt()
@@ -139,7 +165,9 @@ export class EnvironmentVariables {
   BCRYPT_ROUNDS: number = 10;
 }
 
-export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
+export function validateEnv(
+  config: Record<string, unknown>,
+): EnvironmentVariables {
   // NOTE: do NOT enable implicit conversion. class-transformer's implicit
   // boolean coercion does `Boolean("false") === true`, which silently breaks
   // any boolean env flag. We rely on explicit @Transform decorators for

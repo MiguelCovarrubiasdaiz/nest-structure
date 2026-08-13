@@ -1,13 +1,15 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { render } from '@react-email/render';
 import { createTransport, type Transporter } from 'nodemailer';
 import type { MailService, SendMailInput } from '../ports/mail.service';
+import { renderMailTemplate } from '../templates/render-template';
 
 @Injectable()
 export class SmtpMailAdapter implements MailService, OnModuleDestroy {
   private readonly logger = new Logger(SmtpMailAdapter.name);
+
   private readonly transporter: Transporter;
+
   private readonly defaultFrom: string;
 
   constructor(config: ConfigService) {
@@ -28,10 +30,7 @@ export class SmtpMailAdapter implements MailService, OnModuleDestroy {
   }
 
   async send(input: SendMailInput): Promise<void> {
-    const [html, text] = await Promise.all([
-      render(input.template),
-      render(input.template, { plainText: true }),
-    ]);
+    const { html, text } = await renderMailTemplate(input.template);
     await this.transporter.sendMail({
       from: input.from ?? this.defaultFrom,
       to: input.to,

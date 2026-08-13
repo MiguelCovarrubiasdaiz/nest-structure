@@ -3,8 +3,11 @@ import type { TokenPair } from '../../domain/ports/token.service';
 
 export class TokenPairResponse {
   @ApiProperty() accessToken!: string;
+
   @ApiProperty() refreshToken!: string;
+
   @ApiProperty({ example: 'Bearer' }) tokenType!: 'Bearer';
+
   @ApiProperty({ example: 900, description: 'Access token TTL in seconds' })
   expiresIn!: number;
 

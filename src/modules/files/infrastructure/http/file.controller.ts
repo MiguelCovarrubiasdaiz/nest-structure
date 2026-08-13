@@ -2,18 +2,42 @@ import {
   BadRequestException,
   Controller,
   Get,
-  Param,
   Post,
   Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { Request } from 'express';
+import { FileResponse } from '../../application/dtos/file.response';
+import { SignedUrlQueryDto } from '../../application/dtos/signed-url.query';
 import { UploadFileUseCase } from '../../application/use-cases/upload-file.use-case';
 import { GetSignedUrlUseCase } from '../../application/use-cases/get-signed-url.use-case';
 
+// 10 MiB cap keeps a single upload from exhausting memory (multer buffers in RAM).
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+];
+
+type MulterFileFilterCallback = (
+  error: Error | null,
+  acceptFile: boolean,
+) => void;
+
 @ApiTags('files')
+@ApiBearerAuth()
 @Controller('files')
 export class FileController {
   constructor(
@@ -22,7 +46,7 @@ export class FileController {
   ) {}
 
   @Post('upload')
-  @ApiOperation({ summary: 'Upload a file (multipart)' })
+  @ApiOperation({ summary: 'Upload a file (multipart, max 10 MiB)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -30,24 +54,43 @@ export class FileController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @UseInterceptors(FileInterceptor('file'))
-  async upload(@UploadedFile() file: Express.Multer.File) {
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+      fileFilter: (
+        _req: Request,
+        file: Express.Multer.File,
+        cb: MulterFileFilterCallback,
+      ): void => {
+        if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+          cb(
+            new BadRequestException(
+              `Unsupported file type: ${file.mimetype}. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
+            ),
+            false,
+          );
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async upload(
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<FileResponse> {
     if (!file) throw new BadRequestException('file is required');
-    return this.uploadFile.execute({
+    const object = await this.uploadFile.execute({
       buffer: file.buffer,
       originalName: file.originalname,
       mimeType: file.mimetype,
     });
+    return FileResponse.fromStorage(object);
   }
 
-  @Get(':key/signed-url')
+  @Get('signed-url')
   @ApiOperation({ summary: 'Generate a signed URL for a stored file' })
-  async signed(
-    @Param('key') key: string,
-    @Query('expiresIn') expiresIn?: string,
-  ): Promise<{ url: string }> {
-    const seconds = expiresIn ? Number(expiresIn) : undefined;
-    const url = await this.getSignedUrl.execute(key, seconds);
+  async signed(@Query() query: SignedUrlQueryDto): Promise<{ url: string }> {
+    const url = await this.getSignedUrl.execute(query.key, query.expiresIn);
     return { url };
   }
 }

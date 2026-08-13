@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InvalidTokenException } from '../../domain/exceptions/auth.exceptions';
 import type {
-  TokenPair,
+  RefreshTokenPayload,
   TokenPayload,
   TokenService,
 } from '../../domain/ports/token.service';
@@ -11,42 +11,46 @@ import type {
 @Injectable()
 export class JwtTokenService implements TokenService {
   private readonly logger = new Logger(JwtTokenService.name);
+
   private readonly accessSecret: string;
-  private readonly accessExpiresIn: number;
+
   private readonly refreshSecret: string;
-  private readonly refreshExpiresIn: number;
+
+  readonly accessTtlSeconds: number;
+
+  readonly refreshTtlSeconds: number;
 
   constructor(
     config: ConfigService,
     private readonly jwt: JwtService,
   ) {
     this.accessSecret = config.getOrThrow<string>('JWT_ACCESS_SECRET');
-    this.accessExpiresIn = parseDurationSeconds(
+    this.accessTtlSeconds = parseDurationSeconds(
       config.get<string>('JWT_ACCESS_EXPIRES_IN', '15m'),
     );
     this.refreshSecret = config.getOrThrow<string>('JWT_REFRESH_SECRET');
-    this.refreshExpiresIn = parseDurationSeconds(
+    this.refreshTtlSeconds = parseDurationSeconds(
       config.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
     );
   }
 
-  async signPair(payload: TokenPayload): Promise<TokenPair> {
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwt.signAsync(payload, {
-        secret: this.accessSecret,
-        expiresIn: this.accessExpiresIn,
-      }),
-      this.jwt.signAsync(payload, {
-        secret: this.refreshSecret,
-        expiresIn: this.refreshExpiresIn,
-      }),
-    ]);
-    return {
-      accessToken,
-      refreshToken,
-      tokenType: 'Bearer',
-      expiresIn: this.accessExpiresIn,
-    };
+  signAccessToken(payload: TokenPayload): Promise<string> {
+    return this.jwt.signAsync(
+      { sub: payload.sub, email: payload.email },
+      { secret: this.accessSecret, expiresIn: this.accessTtlSeconds },
+    );
+  }
+
+  signRefreshToken(payload: RefreshTokenPayload): Promise<string> {
+    return this.jwt.signAsync(
+      {
+        sub: payload.sub,
+        email: payload.email,
+        jti: payload.jti,
+        family: payload.family,
+      },
+      { secret: this.refreshSecret, expiresIn: this.refreshTtlSeconds },
+    );
   }
 
   async verifyAccess(token: string): Promise<TokenPayload> {
@@ -56,19 +60,31 @@ export class JwtTokenService implements TokenService {
       });
       return { sub: decoded.sub, email: decoded.email };
     } catch (err) {
-      this.logger.debug(`Access token verify failed: ${(err as Error).message}`);
+      this.logger.debug(
+        `Access token verify failed: ${(err as Error).message}`,
+      );
       throw new InvalidTokenException();
     }
   }
 
-  async verifyRefresh(token: string): Promise<TokenPayload> {
+  async verifyRefresh(token: string): Promise<RefreshTokenPayload> {
     try {
-      const decoded = await this.jwt.verifyAsync<TokenPayload>(token, {
+      const decoded = await this.jwt.verifyAsync<RefreshTokenPayload>(token, {
         secret: this.refreshSecret,
       });
-      return { sub: decoded.sub, email: decoded.email };
+      if (!decoded.jti || !decoded.family) {
+        throw new InvalidTokenException();
+      }
+      return {
+        sub: decoded.sub,
+        email: decoded.email,
+        jti: decoded.jti,
+        family: decoded.family,
+      };
     } catch (err) {
-      this.logger.debug(`Refresh token verify failed: ${(err as Error).message}`);
+      this.logger.debug(
+        `Refresh token verify failed: ${(err as Error).message}`,
+      );
       throw new InvalidTokenException();
     }
   }
@@ -80,6 +96,11 @@ function parseDurationSeconds(value: string): number {
   if (!match) throw new Error(`Invalid JWT duration: ${value}`);
   const n = Number(match[1]);
   const unit = match[2] ?? 's';
-  const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+  const multipliers: Record<string, number> = {
+    s: 1,
+    m: 60,
+    h: 3600,
+    d: 86400,
+  };
   return n * multipliers[unit];
 }

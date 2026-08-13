@@ -9,10 +9,17 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '@modules/auth/infrastructure/http/public.decorator';
+import {
+  CurrentUser,
+  type AuthenticatedUser,
+} from '@modules/auth/infrastructure/http/current-user.decorator';
 import { CreateUserDto } from '../../application/dtos/create-user.dto';
+import { ListUsersQueryDto } from '../../application/dtos/list-users.query';
 import { UpdateUserDto } from '../../application/dtos/update-user.dto';
 import { UserResponse } from '../../application/dtos/user.response';
 import { CreateUserUseCase } from '../../application/use-cases/create-user.use-case';
@@ -35,6 +42,8 @@ export class UserController {
 
   @Post()
   @Public()
+  // Public registration: cap account creation / welcome-email abuse at 5/min/IP.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register a new user' })
   async create(@Body() dto: CreateUserDto): Promise<UserResponse> {
     const user = await this.createUser.execute(dto);
@@ -42,33 +51,42 @@ export class UserController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List all users' })
-  async list(): Promise<UserResponse[]> {
-    const users = await this.listUsers.execute();
+  @ApiOperation({ summary: 'List users (paginated)' })
+  async list(@Query() query: ListUsersQueryDto): Promise<UserResponse[]> {
+    const users = await this.listUsers.execute({
+      limit: query.limit,
+      offset: query.offset,
+    });
     return users.map(UserResponse.fromDomain);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a user by id' })
-  async getOne(@Param('id', new ParseUUIDPipe()) id: string): Promise<UserResponse> {
+  async getOne(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<UserResponse> {
     const user = await this.getUser.execute(id);
     return UserResponse.fromDomain(user);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a user' })
+  @ApiOperation({ summary: 'Update a user (owner only)' })
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateUserDto,
+    @CurrentUser() current: AuthenticatedUser,
   ): Promise<UserResponse> {
-    const user = await this.updateUser.execute(id, dto);
+    const user = await this.updateUser.execute(id, dto, current.id);
     return UserResponse.fromDomain(user);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a user' })
-  async remove(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
-    await this.deleteUser.execute(id);
+  @ApiOperation({ summary: 'Delete a user (owner only)' })
+  async remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() current: AuthenticatedUser,
+  ): Promise<void> {
+    await this.deleteUser.execute(id, current.id);
   }
 }

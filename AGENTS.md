@@ -19,17 +19,17 @@ pnpm db:push            # sync schema (dev)
 pnpm start:dev          # API at http://localhost:3000/api, Swagger at /api/docs
 ```
 
-| Command | Purpose |
-|---|---|
-| `pnpm build` | Compiles to `dist/` — use it to verify code compiles |
-| `pnpm lint` | ESLint with `--fix` |
-| `pnpm format` | Prettier over `src/` and `test/` |
-| `pnpm test` | Jest (unit tests, `*.spec.ts` under `src/`) |
-| `pnpm db:generate` | Generates SQL migration in `drizzle/` from schemas |
+| Command                                   | Purpose                                                |
+| ----------------------------------------- | ------------------------------------------------------ |
+| `pnpm build`                              | Compiles to `dist/` — use it to verify code compiles   |
+| `pnpm lint`                               | ESLint with `--fix`                                    |
+| `pnpm format`                             | Prettier over `src/` and `test/`                       |
+| `pnpm test`                               | Jest (unit tests, `*.spec.ts` under `src/`)            |
+| `pnpm db:generate`                        | Generates SQL migration in `drizzle/` from schemas     |
 | `pnpm db:migrate` / `pnpm db:migrate:run` | Applies migrations (drizzle-kit dev / programmatic CI) |
-| `pnpm db:push` | Direct schema sync without files (dev only) |
-| `pnpm new:module <singular> [plural]` | Scaffolds a hexagonal module with full CRUD |
-| `pnpm email:dev` | Mail template preview on :3001 |
+| `pnpm db:push`                            | Direct schema sync without files (dev only)            |
+| `pnpm new:module <singular> [plural]`     | Scaffolds a hexagonal module with full CRUD            |
+| `pnpm email:dev`                          | Mail template preview on :3001                         |
 
 **Verification after a change**: at minimum `pnpm build` and `pnpm lint`. There are no tests written yet (Jest is configured but there are no `*.spec.ts` files nor a `test/` dir); if you add new business logic, write the `*.spec.ts` next to the file.
 
@@ -90,7 +90,7 @@ export class UserNotFoundException extends DomainException {
 }
 ```
 
-- A single global filter (`DomainExceptionFilter`, registered as `APP_FILTER` in `AppModule`) serializes all error responses. Do **not** create per-module filters or return HTTP codes from use cases.
+- A single global filter (`DomainExceptionFilter`, registered as `APP_FILTER` in `AppModule`) serializes all error responses. Do **not** create per-module filters or return HTTP codes from use cases. For unknown (≥500) errors it returns a generic `'Internal server error'` message and logs the real one server-side — never leak internals to the client.
 - Never throw plain `Error` or `HttpException` from domain/application: always use a typed `DomainException` from the module.
 
 ## Shared (`src/shared/`)
@@ -99,7 +99,7 @@ export class UserNotFoundException extends DomainException {
 
 - `DATABASE_CONNECTION` → Drizzle connection (`database/`).
 - `STORAGE_SERVICE` → `local` or `s3` per `STORAGE_DRIVER` (`storage/`).
-- `MAIL_SERVICE` → `log` (dev) or `smtp` per `MAIL_DRIVER`; React Email `.tsx` templates in `mail/templates/` (`mail/`).
+- `MAIL_SERVICE` → `log` (dev) or `smtp` per `MAIL_DRIVER`. The port is technology-neutral: `send()` takes a `MailTemplate` descriptor (`{ id, data }`), never a React element. React Email `.tsx` templates live in `mail/templates/` and are rendered inside the adapters via `renderMailTemplate` (`mail/templates/render-template.ts`). To add a template: create the `.tsx`, extend the `MailTemplate` union in `mail/ports/mail.service.ts`, and add a `case` in `render-template.ts`.
 - `PASSWORD_HASHER` → bcrypt (`security/`).
 - `env.validation.ts` validates **all** environment variables at boot with class-validator. If you add a new env var, register it there **and** in `.env.example`.
 
@@ -108,6 +108,8 @@ export class UserNotFoundException extends DomainException {
 - `JwtAuthGuard` is registered as a global `APP_GUARD`: **every new route is protected by default**. To open it, use `@Public()` (`@modules/auth/infrastructure/http/public.decorator`).
 - To read the authenticated user use `@CurrentUser()` (`current-user.decorator.ts`) → `{ id, email }`.
 - Do not instantiate another guard or another `JwtModule` per module.
+- **Rate limiting** is centralized too: `ThrottlerModule` + a global `ThrottlerGuard` (100 req/min/IP). Tighten a specific endpoint with `@Throttle({ default: { limit, ttl } })` (see `auth.controller.ts`). Do not register another throttler.
+- **Refresh tokens are persisted** (`refresh_tokens` table) and rotated on every use, with reuse detection (revokes the whole family) and a `POST /auth/logout`. The `TokenIssuer` application service mints + stores pairs; `RefreshTokenUseCase` validates the stored record and that the user still exists.
 
 ## Database workflow
 
@@ -130,7 +132,8 @@ Jest 29 + ts-jest configured inline in `package.json` (`rootDir: src`, pattern `
 - Do not hand-edit `drizzle/` (migrations) — they are generated with `db:generate`.
 - Do not break the 3 hexagonal rules: if a use case "needs" something from infra, define a port in domain and an adapter in infrastructure.
 - Do not add new dependencies unless strictly necessary; if you do, call it out explicitly.
-- Do not add new global guards, filters, or pipes: auth, error handling, and validation are already centralized.
+- Do not add new global guards, filters, or pipes: auth, error handling, validation, and rate limiting are already centralized.
+- Security middleware is set up in `main.ts`: `helmet()` for headers, CORS restricted to `CORS_ORIGIN` (disabled when unset), and Swagger only outside production. Local uploads are served statically from `STORAGE_LOCAL_PATH`.
 - New env vars go in `env.validation.ts` + `.env.example`, never with real values committed.
 - Keep changes minimal and aligned with existing patterns; `users/` is the reference to imitate.
 - If you change conventions, structure, or commands documented here or in the README, update both files.

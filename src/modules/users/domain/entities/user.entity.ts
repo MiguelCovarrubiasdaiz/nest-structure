@@ -1,3 +1,5 @@
+import { InvalidUserDataException } from '../exceptions/user.exceptions';
+
 export interface UserProps {
   id: string;
   email: string;
@@ -9,10 +11,15 @@ export interface UserProps {
 
 export class User {
   readonly id: string;
+
   readonly email: string;
+
   readonly name: string;
+
   readonly passwordHash: string;
+
   readonly createdAt: Date;
+
   readonly updatedAt: Date;
 
   private constructor(props: UserProps) {
@@ -26,13 +33,13 @@ export class User {
 
   static create(props: UserProps): User {
     if (!props.email.includes('@')) {
-      throw new Error('Invalid email');
+      throw new InvalidUserDataException('email must contain "@"');
     }
     if (props.name.trim().length === 0) {
-      throw new Error('Name cannot be empty');
+      throw new InvalidUserDataException('name cannot be empty');
     }
     if (props.passwordHash.length === 0) {
-      throw new Error('Password hash cannot be empty');
+      throw new InvalidUserDataException('password hash cannot be empty');
     }
     return new User(props);
   }

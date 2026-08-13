@@ -5,6 +5,13 @@ export interface TokenPayload {
   email: string;
 }
 
+/** Refresh tokens additionally carry a unique id (`jti`) and a family id, used
+ * for server-side rotation and reuse detection. */
+export interface RefreshTokenPayload extends TokenPayload {
+  jti: string;
+  family: string;
+}
+
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
@@ -13,7 +20,13 @@ export interface TokenPair {
 }
 
 export interface TokenService {
-  signPair(payload: TokenPayload): Promise<TokenPair>;
+  /** TTL of freshly signed access tokens, in seconds. */
+  readonly accessTtlSeconds: number;
+  /** TTL of freshly signed refresh tokens, in seconds. */
+  readonly refreshTtlSeconds: number;
+
+  signAccessToken(payload: TokenPayload): Promise<string>;
+  signRefreshToken(payload: RefreshTokenPayload): Promise<string>;
   verifyAccess(token: string): Promise<TokenPayload>;
-  verifyRefresh(token: string): Promise<TokenPayload>;
+  verifyRefresh(token: string): Promise<RefreshTokenPayload>;
 }

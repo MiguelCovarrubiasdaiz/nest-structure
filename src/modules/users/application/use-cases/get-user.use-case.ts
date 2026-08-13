@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { User } from '../../domain/entities/user.entity';
 import { UserNotFoundException } from '../../domain/exceptions/user.exceptions';
-import { USER_REPOSITORY, type UserRepository } from '../../domain/ports/user.repository';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '../../domain/ports/user.repository';
 
 @Injectable()
 export class GetUserUseCase {

@@ -30,9 +30,16 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const body = this.toBody(error, req.url);
 
     if (body.statusCode >= 500) {
-      this.logger.error(`[${body.code}] ${body.message}`, (error as Error)?.stack);
+      // Log the real error message server-side; the client only sees a generic one.
+      const realMessage = (error as Error)?.message ?? body.message;
+      this.logger.error(
+        `[${body.code}] ${realMessage}`,
+        (error as Error)?.stack,
+      );
     } else {
-      this.logger.warn(`[${body.code}] ${body.message} → ${req.method} ${req.url}`);
+      this.logger.warn(
+        `[${body.code}] ${body.message} → ${req.method} ${req.url}`,
+      );
     }
 
     res.status(body.statusCode).json(body);
@@ -59,23 +66,27 @@ export class DomainExceptionFilter implements ExceptionFilter {
       const message =
         typeof response === 'string'
           ? response
-          : ((response as Record<string, unknown>).message as string) ?? error.message;
+          : (((response as Record<string, unknown>).message as string) ??
+            error.message);
       return {
         ...base,
         statusCode: status,
         code: this.codeFromStatus(status),
         message: Array.isArray(message) ? message.join(', ') : message,
-        details: typeof response === 'object' ? (response as Record<string, unknown>) : undefined,
+        details:
+          typeof response === 'object'
+            ? (response as Record<string, unknown>)
+            : undefined,
       };
     }
 
-    // 3. Unknown error
-    const err = error as Error;
+    // 3. Unknown error — never leak the internal message to the client.
+    // The real error (with stack) is logged server-side in catch().
     return {
       ...base,
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       code: 'INTERNAL_ERROR',
-      message: err?.message ?? 'Internal server error',
+      message: 'Internal server error',
     };
   }
 

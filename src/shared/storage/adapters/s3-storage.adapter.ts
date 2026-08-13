@@ -17,8 +17,11 @@ import type {
 @Injectable()
 export class S3StorageAdapter implements StorageService {
   private readonly logger = new Logger(S3StorageAdapter.name);
+
   private readonly client: S3Client;
+
   private readonly bucket: string;
+
   private readonly publicBaseUrl?: string;
 
   constructor(config: ConfigService) {
@@ -60,7 +63,10 @@ export class S3StorageAdapter implements StorageService {
     const out = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),
     );
-    const bytes = await out.Body!.transformToByteArray();
+    if (!out.Body) {
+      throw new Error(`S3 object has no body: ${key}`);
+    }
+    const bytes = await out.Body.transformToByteArray();
     return Buffer.from(bytes);
   }
 

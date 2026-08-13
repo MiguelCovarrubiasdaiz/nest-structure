@@ -1,14 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import * as React from 'react';
 import { MAIL_SERVICE } from '@shared/mail/mail.tokens';
 import type { MailService } from '@shared/mail/ports/mail.service';
-import { WelcomeEmail } from '@shared/mail/templates/welcome.email';
 import { PASSWORD_HASHER } from '@shared/security/security.tokens';
 import type { PasswordHasher } from '@shared/security/ports/password-hasher.service';
 import { User } from '../../domain/entities/user.entity';
 import { UserAlreadyExistsException } from '../../domain/exceptions/user.exceptions';
-import { USER_REPOSITORY, type UserRepository } from '../../domain/ports/user.repository';
+import {
+  USER_REPOSITORY,
+  type UserRepository,
+} from '../../domain/ports/user.repository';
 import { CreateUserDto } from '../dtos/create-user.dto';
 
 @Injectable()
@@ -43,10 +44,10 @@ export class CreateUserUseCase {
       await this.mail.send({
         to: saved.email,
         subject: 'Welcome!',
-        template: React.createElement(WelcomeEmail, {
-          name: saved.name,
-          ctaUrl: 'https://example.com/app',
-        }),
+        template: {
+          id: 'welcome',
+          data: { name: saved.name, ctaUrl: 'https://example.com/app' },
+        },
       });
     } catch (err) {
       this.logger.warn(

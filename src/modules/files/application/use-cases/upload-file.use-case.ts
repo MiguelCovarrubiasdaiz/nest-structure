@@ -15,7 +15,9 @@ export interface UploadFileInput {
 
 @Injectable()
 export class UploadFileUseCase {
-  constructor(@Inject(STORAGE_SERVICE) private readonly storage: StorageService) {}
+  constructor(
+    @Inject(STORAGE_SERVICE) private readonly storage: StorageService,
+  ) {}
 
   async execute(input: UploadFileInput): Promise<StorageObject> {
     const key = `${new Date().getFullYear()}/${randomUUID()}${extname(input.originalName)}`;

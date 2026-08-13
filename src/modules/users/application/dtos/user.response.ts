@@ -3,9 +3,13 @@ import { User } from '../../domain/entities/user.entity';
 
 export class UserResponse {
   @ApiProperty() id!: string;
+
   @ApiProperty() email!: string;
+
   @ApiProperty() name!: string;
+
   @ApiProperty() createdAt!: Date;
+
   @ApiProperty() updatedAt!: Date;
 
   static fromDomain(user: User): UserResponse {

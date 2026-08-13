@@ -123,7 +123,9 @@ Los templates son componentes React (`.tsx`) tipados. El port (`MailService`) re
 
 ```tsx
 // src/shared/mail/templates/welcome.email.tsx
-export function WelcomeEmail({ name, ctaUrl }: WelcomeEmailProps) { /* ... */ }
+export function WelcomeEmail({ name, ctaUrl }: WelcomeEmailProps) {
+  /* ... */
+}
 ```
 
 ```ts
@@ -187,13 +189,13 @@ BCRYPT_ROUNDS=10                   # rango válido 4–15
 
 ### Endpoints
 
-| Método | Ruta | Auth | Descripción |
-|---|---|---|---|
-| `POST` | `/api/users` | público | Registra un usuario (hashea la password con bcrypt) |
-| `POST` | `/api/auth/login` | público | Devuelve `{ accessToken, refreshToken, tokenType, expiresIn }` |
-| `POST` | `/api/auth/refresh` | público | Intercambia un refresh token por un nuevo par |
-| `GET`  | `/api/auth/me` | bearer | Usuario actual (lee `req.user` inyectado por el guard) |
-| `GET/PATCH/DELETE` | `/api/users/...` | bearer | CRUD protegido |
+| Método             | Ruta                | Auth    | Descripción                                                    |
+| ------------------ | ------------------- | ------- | -------------------------------------------------------------- |
+| `POST`             | `/api/users`        | público | Registra un usuario (hashea la password con bcrypt)            |
+| `POST`             | `/api/auth/login`   | público | Devuelve `{ accessToken, refreshToken, tokenType, expiresIn }` |
+| `POST`             | `/api/auth/refresh` | público | Intercambia un refresh token por un nuevo par                  |
+| `GET`              | `/api/auth/me`      | bearer  | Usuario actual (lee `req.user` inyectado por el guard)         |
+| `GET/PATCH/DELETE` | `/api/users/...`    | bearer  | CRUD protegido                                                 |
 
 ### Guard global + `@Public()`
 
@@ -396,7 +398,7 @@ El `docker-compose.yml` levanta Postgres 16 con:
 
 ```bash
 docker compose up -d         # arranca en background
-docker compose logs -f pg    # ver logs (Ctrl+C para salir)
+docker compose logs -f postgres    # ver logs (Ctrl+C para salir)
 docker compose down          # parar (conserva los datos en el volumen)
 docker compose down -v       # parar y BORRAR la base de datos
 ```
@@ -417,20 +419,23 @@ pnpm db:studio                                             # Drizzle Studio en e
 
 ## Comandos (pnpm)
 
-| Comando | Qué hace |
-|---|---|
-| `pnpm start:dev` | dev server con watch |
-| `pnpm build` | compila a `dist/` |
-| `pnpm db:generate` | genera migraciones SQL desde el schema |
-| `pnpm db:migrate` | aplica migraciones pendientes (drizzle-kit, dev) |
-| `pnpm db:migrate:run` | aplica migraciones (programático, CI/deploy) |
-| `pnpm db:push` | sincroniza schema sin migraciones (dev) |
-| `pnpm db:studio` | abre Drizzle Studio |
-| `pnpm email:dev` | preview de React Email en `:3001` |
-| `pnpm email:export` | exporta los templates como HTML estático |
-| `pnpm new:module <name>` | scaffolda un módulo hexagonal con CRUD completo |
-| `pnpm test` | tests unitarios |
-| `pnpm test:e2e` | tests e2e |
+| Comando                  | Qué hace                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| `pnpm start:dev`         | dev server con watch                                                         |
+| `pnpm build`             | compila a `dist/`                                                            |
+| `pnpm db:generate`       | genera migraciones SQL desde el schema                                       |
+| `pnpm db:migrate`        | aplica migraciones pendientes (drizzle-kit, dev)                             |
+| `pnpm db:migrate:run`    | aplica migraciones (programático; requiere devDependencies — ver nota abajo) |
+| `pnpm db:push`           | sincroniza schema sin migraciones (dev)                                      |
+| `pnpm db:studio`         | abre Drizzle Studio                                                          |
+| `pnpm email:dev`         | preview de React Email en `:3001`                                            |
+| `pnpm email:export`      | exporta los templates como HTML estático                                     |
+| `pnpm new:module <name>` | scaffolda un módulo hexagonal con CRUD completo                              |
+| `pnpm test`              | tests unitarios                                                              |
+
+> **Nota sobre `db:migrate:run`**: corre con `ts-node -r tsconfig-paths/register`, ambos
+> `devDependencies`. En una imagen instalada con `--prod` no estarán disponibles; en ese caso
+> usa `pnpm db:migrate` (drizzle-kit) o instala las devDependencies en el paso de migración del deploy.
 
 ## Por qué Drizzle y no Prisma
 

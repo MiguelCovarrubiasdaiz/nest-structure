@@ -12,9 +12,7 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": true,
-    "noImplicitAny": true,
-    "strictBindCallApply": true,
+    "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
@@ -26,6 +24,6 @@
       "@modules/*": ["src/modules/*"]
     }
   },
-  "include": ["src/**/*", "drizzle.config.ts"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

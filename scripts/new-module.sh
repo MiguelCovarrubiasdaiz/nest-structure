@@ -52,6 +52,8 @@ mkdir -p "$ROOT/domain/entities" \
 # ─────────────── domain ───────────────
 
 cat > "$ROOT/domain/entities/${SINGULAR}.entity.ts" <<EOF
+import { Invalid${PASCAL}DataException } from '../exceptions/${SINGULAR}.exceptions';
+
 export interface ${PASCAL}Props {
   id: string;
   name: string;
@@ -74,7 +76,7 @@ export class ${PASCAL} {
 
   static create(props: ${PASCAL}Props): ${PASCAL} {
     if (props.name.trim().length === 0) {
-      throw new Error('Name cannot be empty');
+      throw new Invalid${PASCAL}DataException('name cannot be empty');
     }
     return new ${PASCAL}(props);
   }
@@ -109,6 +111,15 @@ export class ${PASCAL}NotFoundException extends DomainException {
 
   constructor(id: string) {
     super(\`${PASCAL} with id \${id} not found\`, { id });
+  }
+}
+
+export class Invalid${PASCAL}DataException extends DomainException {
+  readonly code = 'INVALID_${UPPER}_DATA';
+  readonly httpStatus = HttpStatus.UNPROCESSABLE_ENTITY;
+
+  constructor(reason: string) {
+    super(\`Invalid ${SINGULAR} data: \${reason}\`, { reason });
   }
 }
 EOF
@@ -353,7 +364,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Create${PASCAL}Dto } from '../../application/dtos/create-${SINGULAR}.dto';
 import { Update${PASCAL}Dto } from '../../application/dtos/update-${SINGULAR}.dto';
 import { ${PASCAL}Response } from '../../application/dtos/${SINGULAR}.response';
@@ -364,6 +375,7 @@ import { List${PASCAL_PLURAL}UseCase } from '../../application/use-cases/list-${
 import { Update${PASCAL}UseCase } from '../../application/use-cases/update-${SINGULAR}.use-case';
 
 @ApiTags('${PLURAL}')
+@ApiBearerAuth()
 @Controller('${PLURAL}')
 export class ${PASCAL}Controller {
   constructor(
@@ -456,9 +468,24 @@ fi
 
 APP_MODULE="src/app.module.ts"
 IMPORT_LINE="import { ${PASCAL_PLURAL}Module } from '@modules/${PLURAL}/${PLURAL}.module';"
+
+# Runs an awk transform and aborts if it did not actually change the file, so a
+# format change in app.module.ts can never leave us with a false "✅ Wired".
+apply_or_die() {
+  local file="$1" desc="$2" script="$3" var_name="$4" var_val="$5"
+  awk -v "$var_name=$var_val" "$script" "$file" > "$file.tmp"
+  if cmp -s "$file" "$file.tmp"; then
+    rm -f "$file.tmp"
+    echo "❌ Auto-wiring failed: could not $desc in $file."
+    echo "   Add it manually and re-run with the module already present."
+    exit 1
+  fi
+  mv "$file.tmp" "$file"
+}
+
 if ! grep -qF "$IMPORT_LINE" "$APP_MODULE" 2>/dev/null; then
   # add import after the last existing @modules import
-  awk -v imp="$IMPORT_LINE" '
+  apply_or_die "$APP_MODULE" "insert the module import" '
     /^import .* from .@modules\// { last=NR; lines[NR]=$0; next }
     { lines[NR]=$0 }
     END {
@@ -467,10 +494,10 @@ if ! grep -qF "$IMPORT_LINE" "$APP_MODULE" 2>/dev/null; then
         if (i == last) print imp
       }
     }
-  ' "$APP_MODULE" > "$APP_MODULE.tmp" && mv "$APP_MODULE.tmp" "$APP_MODULE"
+  ' imp "$IMPORT_LINE"
 
   # add module to imports array (after the last @modules module already there)
-  awk -v mod="    ${PASCAL_PLURAL}Module," '
+  apply_or_die "$APP_MODULE" "register the module in the imports array" '
     /Module,$/ && /^    / { last=NR }
     { lines[NR]=$0 }
     END {
@@ -479,7 +506,7 @@ if ! grep -qF "$IMPORT_LINE" "$APP_MODULE" 2>/dev/null; then
         if (i == last) print mod
       }
     }
-  ' "$APP_MODULE" > "$APP_MODULE.tmp" && mv "$APP_MODULE.tmp" "$APP_MODULE"
+  ' mod "    ${PASCAL_PLURAL}Module,"
 
   echo "✅ Wired ${PASCAL_PLURAL}Module in $APP_MODULE"
 fi
