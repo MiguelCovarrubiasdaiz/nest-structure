@@ -1,139 +1,72 @@
-# AGENTS.md
+# AGENTS.md — nest-hexagonal-boilerplate
 
-Guide for AI agents (and humans) working in this repository. For user-facing documentation see [README.md](./README.md), which remains the high-level source of truth.
-
-## What this project is
-
-`nest-hexagonal-boilerplate`: REST API built with **NestJS 10 + strict TypeScript**, **Drizzle ORM** over PostgreSQL (`postgres-js` driver), **JWT auth** (access + refresh) with bcrypt, swappable storage (local/S3), and mail via React Email. Everything follows a **hexagonal architecture** (ports & adapters).
-
-- Package manager: **pnpm 9** (do not use npm or yarn).
-- Node: **20** (`.nvmrc`).
-
-## Setup and commands
-
-```bash
-cp .env.example .env
-pnpm install            # installs husky via `prepare`
-docker compose up -d    # PostgreSQL 16 on :5432 (db nest_db)
-pnpm db:push            # sync schema (dev)
-pnpm start:dev          # API at http://localhost:3000/api, Swagger at /api/docs
-```
-
-| Command                                   | Purpose                                                |
-| ----------------------------------------- | ------------------------------------------------------ |
-| `pnpm build`                              | Compiles to `dist/` — use it to verify code compiles   |
-| `pnpm lint`                               | ESLint with `--fix`                                    |
-| `pnpm format`                             | Prettier over `src/` and `test/`                       |
-| `pnpm test`                               | Jest (unit tests, `*.spec.ts` under `src/`)            |
-| `pnpm db:generate`                        | Generates SQL migration in `drizzle/` from schemas     |
-| `pnpm db:migrate` / `pnpm db:migrate:run` | Applies migrations (drizzle-kit dev / programmatic CI) |
-| `pnpm db:push`                            | Direct schema sync without files (dev only)            |
-| `pnpm new:module <singular> [plural]`     | Scaffolds a hexagonal module with full CRUD            |
-| `pnpm email:dev`                          | Mail template preview on :3001                         |
-
-**Verification after a change**: at minimum `pnpm build` and `pnpm lint`. There are no tests written yet (Jest is configured but there are no `*.spec.ts` files nor a `test/` dir); if you add new business logic, write the `*.spec.ts` next to the file.
-
-## Architecture: the 3 hexagonal rules
-
-These rules are **inviolable**. Check them before every edit:
-
-1. **`domain/`** does not import from `application/`, `infrastructure/`, or `@nestjs/*`. Pure TypeScript. (Single deliberate exception: domain exceptions import `HttpStatus` from `@nestjs/common`.)
-2. **`application/`** only imports from `domain/` and from `shared/` **ports**. Use cases depend on interfaces, never on implementations.
-3. **`infrastructure/`** implements the ports and exposes the use cases (HTTP controllers, Drizzle repositories, service adapters).
-
-The Nest module (`<x>.module.ts`) does the port-to-adapter binding. Swapping DB, storage, or mail = writing another adapter; domain and use cases stay untouched.
-
-## Module anatomy
-
-Every module under `src/modules/<plural>/` follows this shape (see `users/` as the canonical reference):
+Entry point for every coding agent (Claude Code, Codex, Cursor, Copilot,
+Gemini CLI, OpenCode, Windsurf…) and every developer. Everything for AI lives
+in **`.agents/`**, the tool-neutral folder:
 
 ```
-<module>/
-├── domain/
-│   ├── entities/<x>.entity.ts         # class with invariants, static factory
-│   ├── ports/<x>.repository.ts        # interface + Symbol token, same file
-│   └── exceptions/<x>.exceptions.ts   # extend DomainException
-├── application/
-│   ├── dtos/                          # class-validator + @ApiProperty
-│   └── use-cases/<verb>-<x>.use-case.ts  # one class, one execute() method
-├── infrastructure/
-│   ├── http/<x>.controller.ts         # thin controller + Swagger decorators
-│   └── persistence/                   # <x>.schema.ts, <x>.mapper.ts, drizzle-<x>.repository.ts
-└── <plural>.module.ts                 # bindings { provide: TOKEN, useClass: Adapter }
+.agents/rules/    the rules, one file per topic (single source of truth)
+.agents/skills/   step-by-step playbooks (SKILL.md)
 ```
 
-Current modules: `users` (CRUD + DB), `auth` (JWT, no persistence of its own — consumes `USER_REPOSITORY` from `users`), `files` (storage example, no domain layer).
+There are no per-tool instruction files (`CLAUDE.md`, `.cursorrules`,
+`copilot-instructions.md`…) on purpose: this file and `.agents/` are the only
+source. Never create tool-specific copies of the rules.
 
-## Code conventions (mandatory)
+User-facing docs: [README.md](./README.md) (Spanish).
 
-- **Ports = interface + Symbol token in the same file**: `export const USER_REPOSITORY = Symbol('USER_REPOSITORY')`. Never abstract classes or string tokens.
-- **Injection**: `@Inject(TOKEN)` in the constructor + `{ provide: TOKEN, useClass: Adapter }` in the module. Import interfaces as `import { TOKEN, type MyPort }` to avoid dragging domain runtime code.
-- **Entities**: immutable, `private constructor`, `static create(props)` factory, business methods return **new instances** (see `User.rename`).
-- **Use cases**: one `@Injectable()` class per action, single `execute(...)` method. Named `<verb>-<x>.use-case.ts`.
-- **Persistence**: the Drizzle schema lives in `infrastructure/persistence/<x>.schema.ts` (camelCase in TS → snake_case in DB), with types `XRow = typeof x.$inferSelect` and `NewXRow = $inferInsert`. An `XMapper` (`toDomain`/`toPersistence`) separates row from entity. The connection is injected via `@Inject(DATABASE_CONNECTION) db: Database`.
-- **Controllers**: thin — validate (pipes), call `useCase.execute()`, and map output with `XResponse.fromDomain(entity)`. Swagger decorators (`@ApiTags`, `@ApiOperation`, `@ApiBearerAuth`) on every endpoint. IDs via `ParseUUIDPipe`.
-- **DTOs**: `class-validator` + `@ApiProperty`/`@ApiPropertyOptional`. There is a global `ValidationPipe` with `whitelist: true`, `forbidNonWhitelisted: true`, `transform: true` — do not repeat manual validation.
-- **Path aliases**: `@shared/*`, `@modules/*`, `@/*`. Relative paths inside a module; aliases across modules/shared.
-- **Style**: Prettier (`singleQuote`, `trailingComma: 'all'`); ESLint raises **errors** on `no-explicit-any`, `no-unused-vars`, and `lines-between-class-members`. Husky + lint-staged run eslint/prettier on every commit — code you write must pass clean.
+## Before writing any code (mandatory)
 
-## Error handling
+1. Read `.agents/rules/project.md` and `.agents/rules/architecture.md` — always.
+2. Find your task in the **Task router** below and read **every** rule file it
+   lists, and the skill's `SKILL.md` when it names one, **before** creating or
+   editing any file.
+3. If you touch an area not covered by the router, read the rule whose topic
+   matches (see the index at the bottom).
+4. In your first reply, list the rule files you read.
 
-- Each module declares its exceptions in `domain/exceptions/` extending `DomainException` (`src/shared/domain/domain.exception.ts`), carrying its own machine-readable `code` and `httpStatus`:
+## Git: hands off
 
-```ts
-export class UserNotFoundException extends DomainException {
-  readonly code = 'USER_NOT_FOUND';
-  readonly httpStatus = HttpStatus.NOT_FOUND;
-  constructor(id: string) {
-    super(`User with id ${id} not found`, { id });
-  }
-}
-```
+AI agents **never** run state-changing git commands: no `git add`, `commit`,
+`push`, `merge`, `rebase`, `reset`, `stash`, `checkout`/`switch` of branches,
+no tags, and no PRs or issues through `gh`. Read-only commands (`git status`,
+`git diff`, `git log`) are fine. Committing is always done by the developer —
+leave the changes in the working tree and suggest a Conventional Commit message
+(`feat(<module>): <summary>`) in your final report.
 
-- A single global filter (`DomainExceptionFilter`, registered as `APP_FILTER` in `AppModule`) serializes all error responses. Do **not** create per-module filters or return HTTP codes from use cases. For unknown (≥500) errors it returns a generic `'Internal server error'` message and logs the real one server-side — never leak internals to the client.
-- Never throw plain `Error` or `HttpException` from domain/application: always use a typed `DomainException` from the module.
+## Task router
 
-## Shared (`src/shared/`)
+| The developer asks…                          | The agent does                                                     | Rules / playbook                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| "Crea el módulo / CRUD / API de X"           | Scaffolds with `pnpm new:module`, then adapts it to the real model | `architecture.md`, `api.md`, `database.md` + skill `create-module`    |
+| "Agrega un endpoint a X"                     | New use-case + DTOs + handler in the module's existing controller  | `architecture.md`, `api.md`, `auth.md`                                |
+| "Agrega/cambia una columna o tabla"          | Schema + entity + mapper + DTOs, then generates the migration      | `database.md`, `architecture.md`                                      |
+| "Toca login, tokens, guard o usuarios"       | Works inside access JWT + rotated/persisted refresh tokens         | `auth.md`                                                             |
+| "Protege / abre / limita un endpoint"        | `@Public()`, `@CurrentUser()`, ownership check, `@Throttle`        | `auth.md`, `api.md`                                                   |
+| "Sube archivos / manda un correo"            | Injects `STORAGE_SERVICE` / `MAIL_SERVICE`, never SDKs directly    | `storage.md`, `email.md`                                              |
+| "Cambia de proveedor (S3, SES, argon2, DB…)" | Writes a new adapter for the existing port + one `case` in the factory | `architecture.md` + the subsystem rule (`storage.md`, `email.md`, …) |
+| "Agrega una variable de entorno"             | Adds it to `env.validation.ts` **and** `.env.example`              | `project.md`                                                          |
+| "Escribe tests para X"                       | Pure unit tests next to the file, ports mocked as plain objects    | `testing.md` + skill `write-tests`                                    |
+| "Arregla este bug"                           | Reproduces it, fixes it in the right layer, verifies the fix       | `architecture.md`, `errors.md`                                        |
 
-`@Global()` modules following the same port + env-selected adapter pattern (`useFactory` + `switch` on `ConfigService`). Tokens live in `<x>.tokens.ts`. Just inject the token — they are available app-wide:
+Every task ends with the **definition of done** in `project.md`.
 
-- `DATABASE_CONNECTION` → Drizzle connection (`database/`).
-- `STORAGE_SERVICE` → `local` or `s3` per `STORAGE_DRIVER` (`storage/`).
-- `MAIL_SERVICE` → `log` (dev) or `smtp` per `MAIL_DRIVER`. The port is technology-neutral: `send()` takes a `MailTemplate` descriptor (`{ id, data }`), never a React element. React Email `.tsx` templates live in `mail/templates/` and are rendered inside the adapters via `renderMailTemplate` (`mail/templates/render-template.ts`). To add a template: create the `.tsx`, extend the `MailTemplate` union in `mail/ports/mail.service.ts`, and add a `case` in `render-template.ts`.
-- `PASSWORD_HASHER` → bcrypt (`security/`).
-- `env.validation.ts` validates **all** environment variables at boot with class-validator. If you add a new env var, register it there **and** in `.env.example`.
+## Rules index (`.agents/rules/`)
 
-## Auth: implications when creating endpoints
+| File              | Covers                                                                |
+| ----------------- | --------------------------------------------------------------------- |
+| `project.md`      | What this is, stack, commands, env vars, definition of done, limits   |
+| `architecture.md` | Hexagonal layers, module anatomy, naming, DI, cross-module access     |
+| `api.md`          | Routes, controllers, DTOs, Swagger, pagination, uploads               |
+| `errors.md`       | `DomainException`, error codes, the global filter and error envelope  |
+| `database.md`     | Drizzle schemas, mappers, repositories, migrations                    |
+| `auth.md`         | JWT access/refresh, rotation + reuse detection, guard, rate limiting  |
+| `storage.md`      | `StorageService` port, local/S3 adapters                              |
+| `email.md`        | `MailService` port, React Email templates, log/SMTP adapters          |
+| `testing.md`      | Jest setup, where specs go, how to mock ports                         |
 
-- `JwtAuthGuard` is registered as a global `APP_GUARD`: **every new route is protected by default**. To open it, use `@Public()` (`@modules/auth/infrastructure/http/public.decorator`).
-- To read the authenticated user use `@CurrentUser()` (`current-user.decorator.ts`) → `{ id, email }`.
-- Do not instantiate another guard or another `JwtModule` per module.
-- **Rate limiting** is centralized too: `ThrottlerModule` + a global `ThrottlerGuard` (100 req/min/IP). Tighten a specific endpoint with `@Throttle({ default: { limit, ttl } })` (see `auth.controller.ts`). Do not register another throttler.
-- **Refresh tokens are persisted** (`refresh_tokens` table) and rotated on every use, with reuse detection (revokes the whole family) and a `POST /auth/logout`. The `TokenIssuer` application service mints + stores pairs; `RefreshTokenUseCase` validates the stored record and that the user still exists.
+The reference module is `src/modules/users/`. When in doubt, open the
+equivalent file there and copy its shape.
 
-## Database workflow
-
-1. Edit/create the schema at `src/modules/<m>/infrastructure/persistence/<x>.schema.ts`.
-2. Add the re-export to the barrel `src/shared/database/schema.ts` (the single source read by `drizzle.config.ts`).
-3. In dev: `pnpm db:push`. For a real migration: `pnpm db:generate`, review the generated SQL in `drizzle/`, then `pnpm db:migrate`.
-4. Generate migrations locally, not in CI (drizzle-kit asks interactively about renames).
-
-## Creating a new module
-
-Preferred: `pnpm new:module order orders`. It generates the full CRUD and auto-wires the schema into `shared/database/schema.ts` and the import into `app.module.ts`. **The script edits `app.module.ts` with awk — after running it, review that file manually** and adjust entity/schema/DTOs to the real fields. Then `pnpm db:push`.
-
-## Tests
-
-Jest 29 + ts-jest configured inline in `package.json` (`rootDir: src`, pattern `*.spec.ts`). No tests exist yet. When adding them: place `*.spec.ts` next to the file under test; domain and use cases are pure, so test them without Nest or a DB (mock ports with objects implementing the interface).
-
-## Constraints for agents
-
-- Always use `pnpm`; never hand-edit `pnpm-lock.yaml`.
-- Do not hand-edit `drizzle/` (migrations) — they are generated with `db:generate`.
-- Do not break the 3 hexagonal rules: if a use case "needs" something from infra, define a port in domain and an adapter in infrastructure.
-- Do not add new dependencies unless strictly necessary; if you do, call it out explicitly.
-- Do not add new global guards, filters, or pipes: auth, error handling, validation, and rate limiting are already centralized.
-- Security middleware is set up in `main.ts`: `helmet()` for headers, CORS restricted to `CORS_ORIGIN` (disabled when unset), and Swagger only outside production. Local uploads are served statically from `STORAGE_LOCAL_PATH`.
-- New env vars go in `env.validation.ts` + `.env.example`, never with real values committed.
-- Keep changes minimal and aligned with existing patterns; `users/` is the reference to imitate.
-- If you change conventions, structure, or commands documented here or in the README, update both files.
+If you change a convention, change the rule file (and the README if it is
+user-facing) — never add rules elsewhere.

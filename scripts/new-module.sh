@@ -3,6 +3,7 @@
 # Usage:   ./scripts/new-module.sh <singular> [plural]
 # Example: ./scripts/new-module.sh order orders
 #          ./scripts/new-module.sh category categories
+#          ./scripts/new-module.sh order-item          # multi-word: kebab-case
 
 set -euo pipefail
 
@@ -15,16 +16,35 @@ fi
 SINGULAR="$1"
 PLURAL="${2:-${SINGULAR}s}"
 
+KEBAB_REGEX='^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+for name in "$SINGULAR" "$PLURAL"; do
+  if ! [[ "$name" =~ $KEBAB_REGEX ]]; then
+    echo "❌ Invalid name '$name': use lowercase kebab-case (e.g. order-item)"
+    exit 1
+  fi
+done
+
 to_pascal() {
   echo "$1" | awk -F'[-_]' '{for(i=1;i<=NF;i++) printf "%s%s", toupper(substr($i,1,1)), substr($i,2)}'
 }
 to_upper_snake() {
   echo "$1" | tr '-' '_' | tr '[:lower:]' '[:upper:]'
 }
+to_snake() {
+  echo "$1" | tr '-' '_'
+}
+to_camel() {
+  local pascal
+  pascal=$(to_pascal "$1")
+  echo "$(echo "${pascal:0:1}" | tr '[:upper:]' '[:lower:]')${pascal:1}"
+}
 
 PASCAL=$(to_pascal "$SINGULAR")
 PASCAL_PLURAL=$(to_pascal "$PLURAL")
 UPPER=$(to_upper_snake "$SINGULAR")
+# Drizzle table: camelCase TS identifier, snake_case SQL name.
+TABLE_CONST=$(to_camel "$PLURAL")
+TABLE_NAME=$(to_snake "$PLURAL")
 
 ROOT="src/modules/${PLURAL}"
 
@@ -38,7 +58,7 @@ echo "  folder        $ROOT"
 echo "  entity        $PASCAL"
 echo "  module class  ${PASCAL_PLURAL}Module"
 echo "  repo token    ${UPPER}_REPOSITORY"
-echo "  table         $PLURAL"
+echo "  table         $TABLE_NAME"
 echo ""
 
 mkdir -p "$ROOT/domain/entities" \
@@ -63,8 +83,11 @@ export interface ${PASCAL}Props {
 
 export class ${PASCAL} {
   readonly id: string;
+
   readonly name: string;
+
   readonly createdAt: Date;
+
   readonly updatedAt: Date;
 
   private constructor(props: ${PASCAL}Props) {
@@ -92,8 +115,13 @@ import { ${PASCAL} } from '../entities/${SINGULAR}.entity';
 
 export const ${UPPER}_REPOSITORY = Symbol('${UPPER}_REPOSITORY');
 
+export interface PaginationOptions {
+  limit: number;
+  offset: number;
+}
+
 export interface ${PASCAL}Repository {
-  findAll(): Promise<${PASCAL}[]>;
+  findAll(options: PaginationOptions): Promise<${PASCAL}[]>;
   findById(id: string): Promise<${PASCAL} | null>;
   save(entity: ${PASCAL}): Promise<${PASCAL}>;
   update(entity: ${PASCAL}): Promise<${PASCAL}>;
@@ -107,6 +135,7 @@ import { DomainException } from '@shared/domain/domain.exception';
 
 export class ${PASCAL}NotFoundException extends DomainException {
   readonly code = '${UPPER}_NOT_FOUND';
+
   readonly httpStatus = HttpStatus.NOT_FOUND;
 
   constructor(id: string) {
@@ -116,6 +145,7 @@ export class ${PASCAL}NotFoundException extends DomainException {
 
 export class Invalid${PASCAL}DataException extends DomainException {
   readonly code = 'INVALID_${UPPER}_DATA';
+
   readonly httpStatus = HttpStatus.UNPROCESSABLE_ENTITY;
 
   constructor(reason: string) {
@@ -151,14 +181,40 @@ export class Update${PASCAL}Dto {
 }
 EOF
 
+cat > "$ROOT/application/dtos/list-${PLURAL}.query.ts" <<EOF
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
+
+export class List${PASCAL_PLURAL}QueryDto {
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 20;
+
+  @ApiPropertyOptional({ minimum: 0, default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset: number = 0;
+}
+EOF
+
 cat > "$ROOT/application/dtos/${SINGULAR}.response.ts" <<EOF
 import { ApiProperty } from '@nestjs/swagger';
 import { ${PASCAL} } from '../../domain/entities/${SINGULAR}.entity';
 
 export class ${PASCAL}Response {
   @ApiProperty() id!: string;
+
   @ApiProperty() name!: string;
+
   @ApiProperty() createdAt!: Date;
+
   @ApiProperty() updatedAt!: Date;
 
   static fromDomain(entity: ${PASCAL}): ${PASCAL}Response {
@@ -217,14 +273,18 @@ EOF
 cat > "$ROOT/application/use-cases/list-${PLURAL}.use-case.ts" <<EOF
 import { Inject, Injectable } from '@nestjs/common';
 import { ${PASCAL} } from '../../domain/entities/${SINGULAR}.entity';
-import { ${UPPER}_REPOSITORY, type ${PASCAL}Repository } from '../../domain/ports/${SINGULAR}.repository';
+import {
+  ${UPPER}_REPOSITORY,
+  type PaginationOptions,
+  type ${PASCAL}Repository,
+} from '../../domain/ports/${SINGULAR}.repository';
 
 @Injectable()
 export class List${PASCAL_PLURAL}UseCase {
   constructor(@Inject(${UPPER}_REPOSITORY) private readonly repo: ${PASCAL}Repository) {}
 
-  execute(): Promise<${PASCAL}[]> {
-    return this.repo.findAll();
+  execute(options: PaginationOptions): Promise<${PASCAL}[]> {
+    return this.repo.findAll(options);
   }
 }
 EOF
@@ -271,15 +331,15 @@ EOF
 cat > "$ROOT/infrastructure/persistence/${SINGULAR}.schema.ts" <<EOF
 import { pgTable, uuid, varchar, timestamp } from 'drizzle-orm/pg-core';
 
-export const ${PLURAL} = pgTable('${PLURAL}', {
+export const ${TABLE_CONST} = pgTable('${TABLE_NAME}', {
   id: uuid('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export type ${PASCAL}Row = typeof ${PLURAL}.\$inferSelect;
-export type New${PASCAL}Row = typeof ${PLURAL}.\$inferInsert;
+export type ${PASCAL}Row = typeof ${TABLE_CONST}.\$inferSelect;
+export type New${PASCAL}Row = typeof ${TABLE_CONST}.\$inferInsert;
 EOF
 
 cat > "$ROOT/infrastructure/persistence/${SINGULAR}.mapper.ts" <<EOF
@@ -309,44 +369,54 @@ EOF
 
 cat > "$ROOT/infrastructure/persistence/drizzle-${SINGULAR}.repository.ts" <<EOF
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { DATABASE_CONNECTION } from '@shared/database/database.tokens';
 import type { Database } from '@shared/database/database.module';
 import { ${PASCAL} } from '../../domain/entities/${SINGULAR}.entity';
-import { ${PASCAL}Repository } from '../../domain/ports/${SINGULAR}.repository';
-import { ${PLURAL} } from './${SINGULAR}.schema';
+import { ${PASCAL}NotFoundException } from '../../domain/exceptions/${SINGULAR}.exceptions';
+import type {
+  PaginationOptions,
+  ${PASCAL}Repository,
+} from '../../domain/ports/${SINGULAR}.repository';
+import { ${TABLE_CONST} } from './${SINGULAR}.schema';
 import { ${PASCAL}Mapper } from './${SINGULAR}.mapper';
 
 @Injectable()
 export class Drizzle${PASCAL}Repository implements ${PASCAL}Repository {
   constructor(@Inject(DATABASE_CONNECTION) private readonly db: Database) {}
 
-  async findAll(): Promise<${PASCAL}[]> {
-    const rows = await this.db.select().from(${PLURAL});
+  async findAll({ limit, offset }: PaginationOptions): Promise<${PASCAL}[]> {
+    const rows = await this.db
+      .select()
+      .from(${TABLE_CONST})
+      .orderBy(asc(${TABLE_CONST}.createdAt), asc(${TABLE_CONST}.id))
+      .limit(limit)
+      .offset(offset);
     return rows.map(${PASCAL}Mapper.toDomain);
   }
 
   async findById(id: string): Promise<${PASCAL} | null> {
-    const [row] = await this.db.select().from(${PLURAL}).where(eq(${PLURAL}.id, id)).limit(1);
+    const [row] = await this.db.select().from(${TABLE_CONST}).where(eq(${TABLE_CONST}.id, id)).limit(1);
     return row ? ${PASCAL}Mapper.toDomain(row) : null;
   }
 
   async save(entity: ${PASCAL}): Promise<${PASCAL}> {
-    const [row] = await this.db.insert(${PLURAL}).values(${PASCAL}Mapper.toPersistence(entity)).returning();
+    const [row] = await this.db.insert(${TABLE_CONST}).values(${PASCAL}Mapper.toPersistence(entity)).returning();
     return ${PASCAL}Mapper.toDomain(row);
   }
 
   async update(entity: ${PASCAL}): Promise<${PASCAL}> {
     const [row] = await this.db
-      .update(${PLURAL})
-      .set({ name: entity.name, updatedAt: entity.updatedAt })
-      .where(eq(${PLURAL}.id, entity.id))
+      .update(${TABLE_CONST})
+      .set(${PASCAL}Mapper.toPersistence(entity))
+      .where(eq(${TABLE_CONST}.id, entity.id))
       .returning();
+    if (!row) throw new ${PASCAL}NotFoundException(entity.id);
     return ${PASCAL}Mapper.toDomain(row);
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.delete(${PLURAL}).where(eq(${PLURAL}.id, id));
+    await this.db.delete(${TABLE_CONST}).where(eq(${TABLE_CONST}.id, id));
   }
 }
 EOF
@@ -363,9 +433,11 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Create${PASCAL}Dto } from '../../application/dtos/create-${SINGULAR}.dto';
+import { List${PASCAL_PLURAL}QueryDto } from '../../application/dtos/list-${PLURAL}.query';
 import { Update${PASCAL}Dto } from '../../application/dtos/update-${SINGULAR}.dto';
 import { ${PASCAL}Response } from '../../application/dtos/${SINGULAR}.response';
 import { Create${PASCAL}UseCase } from '../../application/use-cases/create-${SINGULAR}.use-case';
@@ -394,9 +466,12 @@ export class ${PASCAL}Controller {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List all ${PLURAL}' })
-  async list(): Promise<${PASCAL}Response[]> {
-    const items = await this.list${PASCAL_PLURAL}.execute();
+  @ApiOperation({ summary: 'List ${PLURAL} (paginated)' })
+  async list(@Query() query: List${PASCAL_PLURAL}QueryDto): Promise<${PASCAL}Response[]> {
+    const items = await this.list${PASCAL_PLURAL}.execute({
+      limit: query.limit,
+      offset: query.offset,
+    });
     return items.map(${PASCAL}Response.fromDomain);
   }
 
@@ -509,6 +584,12 @@ if ! grep -qF "$IMPORT_LINE" "$APP_MODULE" 2>/dev/null; then
   ' mod "    ${PASCAL_PLURAL}Module,"
 
   echo "✅ Wired ${PASCAL_PLURAL}Module in $APP_MODULE"
+fi
+
+PRETTIER="node_modules/.bin/prettier"
+if [ -x "$PRETTIER" ]; then
+  "$PRETTIER" --log-level warn --write "$ROOT" "$SCHEMA_FILE" "$APP_MODULE"
+  echo "✅ Formatted with Prettier"
 fi
 
 echo ""

@@ -119,7 +119,7 @@ STORAGE_S3_PUBLIC_URL=   # opcional para servir desde CDN
 
 ## Mail con React Email
 
-Los templates son componentes React (`.tsx`) tipados. El port (`MailService`) recibe el JSX y el adapter lo renderiza a HTML + texto plano.
+Los templates son componentes React (`.tsx`) tipados. El port (`MailService`) es neutral: recibe un descriptor `{ id, data }` (union `MailTemplate`) y el adapter lo renderiza a HTML + texto plano con `renderMailTemplate`. React Email nunca sale de infrastructure.
 
 ```tsx
 // src/shared/mail/templates/welcome.email.tsx
@@ -135,7 +135,7 @@ constructor(@Inject(MAIL_SERVICE) private readonly mail: MailService) {}
 await this.mail.send({
   to: user.email,
   subject: 'Welcome!',
-  template: React.createElement(WelcomeEmail, { name, ctaUrl }),
+  template: { id: 'welcome', data: { name, ctaUrl } },
 });
 ```
 
@@ -168,7 +168,9 @@ Cada `*.email.tsx` con `default export` aparece en la lista; `PreviewProps` defi
 1. Crea `src/shared/mail/templates/reset-password.email.tsx`.
 2. Importa `BaseLayout` y los primitives de `@react-email/components` (`Heading`, `Text`, `Button`, etc.).
 3. Añade `PreviewProps` con datos de muestra y exporta como `default` para que aparezca en `pnpm email:dev`.
-4. Úsalo: `template: React.createElement(ResetPasswordEmail, { ... })`.
+4. Añade `{ id: 'reset-password'; data: ResetPasswordMailData }` a la union `MailTemplate` en `src/shared/mail/ports/mail.service.ts`.
+5. Añade el `case 'reset-password'` en `src/shared/mail/templates/render-template.ts`.
+6. Úsalo: `template: { id: 'reset-password', data: { ... } }`.
 
 ### Cambiar de proveedor (Resend, SES, etc.)
 
@@ -194,6 +196,7 @@ BCRYPT_ROUNDS=10                   # rango válido 4–15
 | `POST`             | `/api/users`        | público | Registra un usuario (hashea la password con bcrypt)            |
 | `POST`             | `/api/auth/login`   | público | Devuelve `{ accessToken, refreshToken, tokenType, expiresIn }` |
 | `POST`             | `/api/auth/refresh` | público | Intercambia un refresh token por un nuevo par                  |
+| `POST`             | `/api/auth/logout`  | público | Revoca la familia del refresh token (idempotente)              |
 | `GET`              | `/api/auth/me`      | bearer  | Usuario actual (lee `req.user` inyectado por el guard)         |
 | `GET/PATCH/DELETE` | `/api/users/...`    | bearer  | CRUD protegido                                                 |
 
@@ -273,7 +276,7 @@ pnpm new:module order orders
 # (singular)  (plural opcional, default: <singular>s)
 ```
 
-Genera el CRUD completo (entity + port + 5 use-cases + DTOs + controller + drizzle schema/mapper/repo + module) y auto-engancha el schema y el módulo:
+Genera el CRUD completo (entity + port + 5 use-cases + DTOs + listado paginado `limit`/`offset` + controller + drizzle schema/mapper/repo + module), lo formatea con Prettier y auto-engancha el schema y el módulo. Los nombres deben ir en kebab-case minúsculas; `order-item` genera la carpeta/ruta `order-items`, la constante `orderItems` y la tabla `order_items`:
 
 - Añade el schema a `src/shared/database/schema.ts`
 - Importa el módulo en `src/app.module.ts`
@@ -443,6 +446,18 @@ pnpm db:studio                                             # Drizzle Studio en e
 - Queries cercanas al SQL pero con tipado fuerte
 - Sin runtime "engine" separado, sólo el driver `postgres-js`
 - Ideal para arquitectura hexagonal: el schema vive en `infrastructure/` sin contaminar el dominio
+
+## Context Engineering (agentes de IA)
+
+Las instrucciones para cualquier IA (Claude Code, Codex, Cursor, Copilot, Gemini CLI, OpenCode, Windsurf…) viven en un solo lugar, neutral a la herramienta:
+
+```
+AGENTS.md                      # punto de entrada + router de tareas → qué reglas leer
+.agents/rules/<tema>.md        # reglas, un archivo por tema (única fuente de verdad)
+.agents/skills/<skill>/SKILL.md # playbooks paso a paso (create-module, write-tests)
+```
+
+No hay archivos por herramienta (`CLAUDE.md`, `.cursorrules`, `copilot-instructions.md`…): `AGENTS.md` + `.agents/` es la única fuente. Si tu herramienta no lee `AGENTS.md` de forma nativa, apúntala a él desde su configuración, no copiando reglas. Si cambias una convención, edita la regla en `.agents/rules/`.
 
 ## License
 
